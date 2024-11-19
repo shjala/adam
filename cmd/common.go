@@ -20,12 +20,13 @@ const (
 )
 
 var (
-	cn          string
-	certPath    string
-	hosts       string
-	force       bool
-	databaseURL string
-	configDir   string
+	cn              string
+	certPath        string
+	onboardCertPath string
+	hosts           string
+	force           bool
+	databaseURL     string
+	configDir       string
 )
 
 func getFriendlyCN(cn string) string {

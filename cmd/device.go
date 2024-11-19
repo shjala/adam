@@ -80,7 +80,14 @@ var deviceAddCmd = &cobra.Command{
 	Short: "add new device",
 	Long:  `Add new device and retrieve the UUID`,
 	Run: func(cmd *cobra.Command, args []string) {
-		b, err := os.ReadFile(certPath)
+		dCert, err := os.ReadFile(certPath)
+		switch {
+		case err != nil && os.IsNotExist(err):
+			log.Fatalf("cert file %s does not exist", certPath)
+		case err != nil:
+			log.Fatalf("error reading cert file %s: %v", certPath, err)
+		}
+		oCert, err := os.ReadFile(onboardCertPath)
 		switch {
 		case err != nil && os.IsNotExist(err):
 			log.Fatalf("cert file %s does not exist", certPath)
@@ -92,7 +99,9 @@ var deviceAddCmd = &cobra.Command{
 			log.Fatalf("error constructing URL: %v", err)
 		}
 		body, err := json.Marshal(server.DeviceCert{
-			Cert: b,
+			Cert:    dCert,
+			Onboard: oCert,
+			Serial:  serials,
 		})
 		if err != nil {
 			log.Fatalf("error encoding json: %v", err)
@@ -318,6 +327,8 @@ func deviceInit() {
 	// deviceAdd
 	deviceCmd.AddCommand(deviceAddCmd)
 	deviceAddCmd.Flags().StringVar(&certPath, "path", "", "path to certificate to add")
+	deviceAddCmd.Flags().StringVar(&onboardCertPath, "onboard-path", "", "path to onboard certificate to add")
+	deviceAddCmd.Flags().StringVar(&serials, "serial", "", "serials to include with the onboard certificate")
 	deviceAddCmd.MarkFlagRequired("path")
 	// deviceRemove
 	deviceCmd.AddCommand(deviceRemoveCmd)
