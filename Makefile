@@ -116,4 +116,5 @@ endif
 
 clean:
 	rm -rf run/*
+	rm -rf $(BINDIR)
 

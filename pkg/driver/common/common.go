@@ -51,7 +51,6 @@ type BigData interface {
 }
 
 type DeviceStorage struct {
-	Cert        *x509.Certificate
 	Info        BigData
 	Metrics     BigData
 	Logs        BigData
@@ -59,13 +58,12 @@ type DeviceStorage struct {
 	FlowMessage BigData
 	Certs       BigData
 	AppLogs     map[uuid.UUID]BigData
-	CurrentLog  int
-	Config      []byte
-	AttestCerts []byte
-	StorageKeys []byte
+	// form the disk
 	Serial      string
-	Onboard     *x509.Certificate
-	Options     []byte // stores json representation of DeviceOptions
+	Onboarded   bool
+	UUID        uuid.UUID
+	OnboardCert *x509.Certificate
+	DeviceCert  *x509.Certificate
 }
 
 type FullCertsEntry struct {
@@ -136,6 +134,7 @@ func (d *DeviceStorage) AddLogs(b []byte) error {
 	_, err := d.Logs.Write(b)
 	return err
 }
+
 func (d *DeviceStorage) AddAppLog(instanceID uuid.UUID, b []byte) error {
 	// what if the device was not initialized yet?
 	if d.AppLogs == nil {
@@ -147,6 +146,7 @@ func (d *DeviceStorage) AddAppLog(instanceID uuid.UUID, b []byte) error {
 	_, err := d.AppLogs[instanceID].Write(b)
 	return err
 }
+
 func (d *DeviceStorage) AddInfo(b []byte) error {
 	// what if the device was not initialized yet?
 	if d.Info == nil {
@@ -155,6 +155,7 @@ func (d *DeviceStorage) AddInfo(b []byte) error {
 	_, err := d.Info.Write(b)
 	return err
 }
+
 func (d *DeviceStorage) AddMetrics(b []byte) error {
 	// what if the device was not initialized yet?
 	if d.Metrics == nil {

@@ -27,6 +27,7 @@ var (
 	force           bool
 	databaseURL     string
 	configDir       string
+	serial          string
 )
 
 func getFriendlyCN(cn string) string {

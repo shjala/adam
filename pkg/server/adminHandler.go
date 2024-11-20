@@ -53,100 +53,10 @@ type OnboardCert struct {
 
 // DeviceCert encoding for sending a device information, including device cert, onboard cert, and serial, if any
 type DeviceCert struct {
-	Cert    []byte
-	Onboard []byte
-	Serial  string
-}
-
-func (h *adminHandler) onboardAdd(w http.ResponseWriter, r *http.Request) {
-	// extract certificate and serials from request body
-	contentType := r.Header.Get(contentType)
-	if contentType != mimeJSON {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-	decoder := json.NewDecoder(r.Body)
-	var t OnboardCert
-	err := decoder.Decode(&t)
-	if err != nil {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
-
-	serials := strings.Split(t.Serial, ",")
-	cert, err := ax.ParseCert(t.Cert)
-	if err != nil {
-		log.Printf("onboardAdd: ParseCert error: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	err = h.manager.OnboardRegister(cert, serials)
-	if err != nil {
-		log.Printf("onboardAdd: OnboardRegister error: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
-}
-
-func (h *adminHandler) onboardList(w http.ResponseWriter, r *http.Request) {
-	cns, err := h.manager.OnboardList()
-	if err != nil {
-		log.Printf("onboardList: OnboardList error: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	body := strings.Join(cns, "\n")
-	w.WriteHeader(http.StatusOK)
-	w.Header().Add(contentType, mimeTextPlain)
-	w.Write([]byte(body))
-}
-
-func (h *adminHandler) onboardGet(w http.ResponseWriter, r *http.Request) {
-	cn := mux.Vars(r)["cn"]
-	cert, serials, err := h.manager.OnboardGet(cn)
-	_, isNotFound := err.(*common.NotFoundError)
-	switch {
-	case err != nil && isNotFound:
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case err != nil:
-		log.Printf("onboardGet: OnboardGet(%s) error: %v", cn, err)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-	default:
-		body, err := json.Marshal(OnboardCert{
-			Cert:   ax.PemEncodeCert(cert.Raw),
-			Serial: strings.Join(serials, ","),
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write(body)
-	}
-}
-
-func (h *adminHandler) onboardRemove(w http.ResponseWriter, r *http.Request) {
-	cn := mux.Vars(r)["cn"]
-	err := h.manager.OnboardRemove(cn)
-	_, isNotFound := err.(*common.NotFoundError)
-	switch {
-	case err != nil && isNotFound:
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
-	case err != nil:
-		log.Printf("OnboardRemove(%s) error: %v", cn, err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	default:
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func (h *adminHandler) onboardClear(w http.ResponseWriter, r *http.Request) {
-	err := h.manager.OnboardClear()
-	if err != nil {
-		log.Printf("onboardClear: OnboardClear error: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	Cert      []byte
+	Onboard   []byte
+	Serial    string
+	Onboarded bool
 }
 
 func (h *adminHandler) deviceAdd(w http.ResponseWriter, r *http.Request) {
@@ -226,7 +136,7 @@ func (h *adminHandler) deviceGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	deviceCert, onboardCert, serial, err := h.manager.DeviceGet(&uid)
+	deviceCert, onboardCert, serial, onboarded, err := h.manager.DeviceGet(&uid)
 	_, isNotFound := err.(*common.NotFoundError)
 	switch {
 	case err != nil && isNotFound:
@@ -238,11 +148,10 @@ func (h *adminHandler) deviceGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "found device information, but cert was empty", http.StatusInternalServerError)
 	default:
 		dc := DeviceCert{
-			Cert:   ax.PemEncodeCert(deviceCert.Raw),
-			Serial: serial,
-		}
-		if onboardCert != nil {
-			dc.Onboard = ax.PemEncodeCert(onboardCert.Raw)
+			Cert:      ax.PemEncodeCert(deviceCert.Raw),
+			Onboard:   ax.PemEncodeCert(onboardCert.Raw),
+			Serial:    serial,
+			Onboarded: onboarded,
 		}
 		body, err := json.Marshal(dc)
 		if err != nil {
@@ -399,13 +308,13 @@ func (h *adminHandler) deviceConfigSet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	b, err := proto.Marshal(&deviceConfig)
+	jb, err := json.MarshalIndent(&deviceConfig, "", "  ")
 	if err != nil {
 		log.Printf("deviceConfigSet: Marshal error: %v", err)
 		http.Error(w, fmt.Sprintf("error processing device config: %v", err), http.StatusBadRequest)
 		return
 	}
-	err = h.manager.SetConfig(uid, b)
+	err = h.manager.SetConfig(uid, jb)
 	_, isNotFound = err.(*common.NotFoundError)
 	switch {
 	case err != nil && isNotFound:
@@ -594,7 +503,7 @@ func (h *adminHandler) deviceOptionsSet(w http.ResponseWriter, r *http.Request) 
 	err = json.Unmarshal(body, &deviceOptions)
 	if err != nil {
 		log.Printf("deviceOptionsSet: Unmarshal options error: %v", err)
-		http.Error(w, fmt.Sprintf("failed to marshal json message into protobuf: %v", err), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("failed to marshal json message into json: %v", err), http.StatusBadRequest)
 		return
 	}
 	err = h.manager.SetDeviceOptions(uid, body)

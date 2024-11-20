@@ -1,4 +1,16 @@
-# Adam
+# Minimalist Adam
+
+Minimalist Adam is a fork of Adam, stripped down to only contain the essentials. It remains fully functional and is designed for rapid development, easy debugging, and exploring EVE APIs. All data is stored on disk in plain text. Checkout `scripts/bootstrap.sh` to see how to onboard a device.
+
+List of Changes:
+* Only device manager is file.
+* Device manager reworked.
+* "onboard" removed from CLI, now added device correctly gets onboarded.
+* No need to race with controler to set the device config (after it registers).
+* Less tied to Eden and more like individual component.
+
+---
+
 
 Welcome to Adam! Adam is the reference implementation of an [LF-Edge](https://www.lfedge.org) [API-compliant Controller](https://github.com/lf-edge/eve-api/blob/main/README.md). You can use Adam to drive one or more [EVE](https://www.lfedge.org/projects/eve/) instances from any computer, locally, in the cloud, or in a container.
 

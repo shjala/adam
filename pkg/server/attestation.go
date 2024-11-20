@@ -13,7 +13,6 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/google/go-tpm/tpm2"
 	"github.com/lf-edge/adam/pkg/driver"
 	"github.com/lf-edge/adam/pkg/driver/common"
@@ -21,6 +20,7 @@ import (
 	"github.com/lf-edge/eve-api/go/attest"
 	"github.com/lf-edge/eve-api/go/certs"
 	uuid "github.com/satori/go.uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 // extractQuoteAttestTemplate process attestation quote and return internal structure with provided data
@@ -240,11 +240,11 @@ func attestProcess(manager driver.DeviceManager, u uuid.UUID, b []byte) ([]byte,
 		response.Nonce = &attest.ZAttestNonceResp{Nonce: []byte(nonce)}
 	case attest.ZAttestReqType_ATTEST_REQ_CERT:
 		certsData := &common.Zcerts{Certs: msg.Certs}
-		b, err := json.Marshal(certsData)
+		b, err := json.MarshalIndent(certsData, "", "  ")
 		if err != nil {
 			return nil, http.StatusBadRequest, fmt.Errorf("failed to marshal attest message: %v", err)
 		}
-		err = manager.WriteCerts(u, b)
+		err = manager.WriteAttestCerts(u, b)
 		if err != nil {
 			return nil, http.StatusInternalServerError, fmt.Errorf("failed to write attest certs message: %v", err)
 		}
@@ -322,7 +322,7 @@ func attestProcess(manager driver.DeviceManager, u uuid.UUID, b []byte) ([]byte,
 			break
 		}
 		storageKeys := msg.StorageKeys
-		b, err := json.Marshal(storageKeys)
+		b, err := json.MarshalIndent(storageKeys, "", "  ")
 		if err != nil {
 			return nil, http.StatusBadRequest, fmt.Errorf("failed to marshal storage keys: %s", err)
 		}

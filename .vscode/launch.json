@@ -1,0 +1,23 @@
+{
+  "configurations": [
+    {
+      "name": "Launch Program",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}",
+      "args": [
+        "server",
+        "--server-cert", "run/certs/server.pem",
+        "--server-key", "run/certs/server-key.pem",
+        "--signing-cert", "run/certs/signing.pem",
+        "--signing-key", "run/certs/signing-key.pem",
+        "--encrypt-cert", "run/certs/encrypt.pem",
+        "--encrypt-key", "run/certs/encrypt-key.pem",
+        "--conf-dir", "run/adam",
+        "--port", "9090"
+      ],
+      "cwd": "${workspaceFolder}",
+    },
+  ]
+}

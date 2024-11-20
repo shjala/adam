@@ -50,9 +50,6 @@ func adminInit() {
 	adminCmd.PersistentFlags().Bool("insecure", false, "accept invalid, expired or mismatched hostname errors for adam server certificate, can also be set via env var ADAM_INSECURE")
 	viper.BindPFlag("insecure", adminCmd.PersistentFlags().Lookup("insecure"))
 
-	// onboard
-	adminCmd.AddCommand(onboardCmd)
-	onboardInit()
 	// device
 	adminCmd.AddCommand(deviceCmd)
 	deviceInit()

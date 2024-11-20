@@ -94,62 +94,38 @@ func (s *Server) Start() {
 	infoChannel := make(chan []byte)
 	metricChannel := make(chan []byte)
 
-	// edgedevice endpoint - fully compliant with EVE open API
-	api := &apiHandler{
-		manager:       s.DeviceManager,
-		logChannel:    logChannel,
-		infoChannel:   infoChannel,
-		metricChannel: metricChannel,
+	if !hasApiV2 {
+		log.Fatalf("Only APIv2 supported at this time")
 	}
 
-	router.HandleFunc("/probe", api.probe).Methods("GET")
-
-	ed := router.PathPrefix("/api/v1/edgedevice").Subrouter()
-	ed.Use(ensureMTLS)
-	ed.Use(logRequest)
-	ed.HandleFunc("/register", api.register).Methods("POST")
-	ed.HandleFunc("/ping", api.ping).Methods("GET")
-	ed.HandleFunc("/config", api.config).Methods("GET")
-	ed.HandleFunc("/config", api.configPost).Methods("POST")
-	ed.HandleFunc("/info", api.info).Methods("POST")
-	ed.HandleFunc("/metrics", api.metrics).Methods("POST")
-	ed.HandleFunc("/logs", api.logs).Methods("POST")
-	ed.HandleFunc("/newlogs", api.newLogs).Methods("POST")
-	ed.HandleFunc("/flowlog", api.flowLog).Methods("POST")
-	ed.HandleFunc("/apps/instances/id/{uuid}/logs", api.appLogs).Methods("POST")
-	ed.HandleFunc("/apps/instanceid/id/{uuid}/newlogs", api.newAppLogs).Methods("POST")
-	ed.HandleFunc("/uuid", api.uuid).Methods("POST")
-
-	if hasApiV2 {
-		apiv2 := &apiHandlerv2{
-			manager:         s.DeviceManager,
-			logChannel:      logChannel,
-			infoChannel:     infoChannel,
-			metricChannel:   metricChannel,
-			signingCertPath: s.SigningCertPath,
-			signingKeyPath:  s.SigningKeyPath,
-			encryptCertPath: s.EncryptCertPath,
-			encryptKeyPath:  s.EncryptKeyPath,
-		}
-
-		edv2 := router.PathPrefix("/api/v2/edgedevice").Subrouter()
-		edv2.Use(logRequest)
-		edv2.HandleFunc("/certs", apiv2.certs).Methods("GET")
-		edv2.HandleFunc("/certs", apiv2.certs).Methods("POST")
-		edv2.HandleFunc("/register", apiv2.register).Methods("POST")
-		edv2.HandleFunc("/ping", apiv2.ping).Methods("GET")
-		edv2.HandleFunc("/config", apiv2.config).Methods("GET", "POST")
-		edv2.HandleFunc("/id/{uuid}/config", apiv2.config).Methods("GET", "POST")
-		edv2.HandleFunc("/id/{uuid}/attest", apiv2.attest).Methods("POST")
-		edv2.HandleFunc("/id/{uuid}/info", apiv2.info).Methods("POST")
-		edv2.HandleFunc("/id/{uuid}/metrics", apiv2.metrics).Methods("POST")
-		edv2.HandleFunc("/id/{uuid}/logs", apiv2.logs).Methods("POST")
-		edv2.HandleFunc("/id/{uuid}/newlogs", apiv2.newLogs).Methods("POST")
-		edv2.HandleFunc("/id/{uuid}/flowlog", apiv2.flowlog).Methods("POST")
-		edv2.HandleFunc("/id/{uuid}/apps/instances/id/{appuuid}/logs", apiv2.appLogs).Methods("POST")
-		edv2.HandleFunc("/id/{uuid}/apps/instanceid/{appuuid}/newlogs", apiv2.newAppLogs).Methods("POST")
-		edv2.HandleFunc("/uuid", apiv2.uuid).Methods("POST")
+	apiv2 := &apiHandlerv2{
+		manager:         s.DeviceManager,
+		logChannel:      logChannel,
+		infoChannel:     infoChannel,
+		metricChannel:   metricChannel,
+		signingCertPath: s.SigningCertPath,
+		signingKeyPath:  s.SigningKeyPath,
+		encryptCertPath: s.EncryptCertPath,
+		encryptKeyPath:  s.EncryptKeyPath,
 	}
+
+	edv2 := router.PathPrefix("/api/v2/edgedevice").Subrouter()
+	edv2.Use(logRequest)
+	edv2.HandleFunc("/certs", apiv2.certs).Methods("GET")
+	edv2.HandleFunc("/certs", apiv2.certs).Methods("POST")
+	edv2.HandleFunc("/register", apiv2.register).Methods("POST")
+	edv2.HandleFunc("/ping", apiv2.ping).Methods("GET")
+	edv2.HandleFunc("/config", apiv2.config).Methods("GET", "POST")
+	edv2.HandleFunc("/id/{uuid}/config", apiv2.config).Methods("GET", "POST")
+	edv2.HandleFunc("/id/{uuid}/attest", apiv2.attest).Methods("POST")
+	edv2.HandleFunc("/id/{uuid}/info", apiv2.info).Methods("POST")
+	edv2.HandleFunc("/id/{uuid}/metrics", apiv2.metrics).Methods("POST")
+	edv2.HandleFunc("/id/{uuid}/logs", apiv2.logs).Methods("POST")
+	edv2.HandleFunc("/id/{uuid}/newlogs", apiv2.newLogs).Methods("POST")
+	edv2.HandleFunc("/id/{uuid}/flowlog", apiv2.flowlog).Methods("POST")
+	edv2.HandleFunc("/id/{uuid}/apps/instances/id/{appuuid}/logs", apiv2.appLogs).Methods("POST")
+	edv2.HandleFunc("/id/{uuid}/apps/instanceid/{appuuid}/newlogs", apiv2.newAppLogs).Methods("POST")
+	edv2.HandleFunc("/uuid", apiv2.uuid).Methods("POST")
 
 	// admin endpoint - custom, used to manage adam
 	admin := &adminHandler{
@@ -174,11 +150,6 @@ func (s *Server) Start() {
 	// responses:
 	//   '200':
 	//     description: successful operation
-	ad.HandleFunc("/onboard", admin.onboardList).Methods("GET")
-	ad.HandleFunc("/onboard/{cn}", admin.onboardGet).Methods("GET")
-	ad.HandleFunc("/onboard", admin.onboardAdd).Methods("POST")
-	ad.HandleFunc("/onboard", admin.onboardClear).Methods("DELETE")
-	ad.HandleFunc("/onboard/{cn}", admin.onboardRemove).Methods("DELETE")
 	ad.HandleFunc("/device", admin.deviceList).Methods("GET")
 	ad.HandleFunc("/device/{uuid}", admin.deviceGet).Methods("GET")
 	ad.HandleFunc("/device/{uuid}/config", admin.deviceConfigGet).Methods("GET")
@@ -291,13 +262,13 @@ func ensureMTLS(next http.Handler) http.Handler {
 // log the request and client
 func logRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
 		cert := getClientCert(r)
 		if cert != nil {
-			log.Printf("%s (%s) requested %s", r.RemoteAddr, cert.Subject.String(), r.URL.Path)
+			log.Printf("%s (%s) [%s]\t%s", r.RemoteAddr, cert.Subject.String(), r.Method, r.URL.Path)
 		} else {
-			log.Printf("%s requested %s", r.RemoteAddr, r.URL.Path)
+			log.Printf("%s [%s]\t%s", r.RemoteAddr, r.Method, r.URL.Path)
 		}
-		next.ServeHTTP(w, r)
 	})
 }
 

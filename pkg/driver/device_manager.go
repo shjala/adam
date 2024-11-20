@@ -5,7 +5,9 @@ package driver
 
 import (
 	"crypto/x509"
+
 	"github.com/lf-edge/adam/pkg/driver/common"
+	"github.com/lf-edge/adam/pkg/driver/file"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -39,34 +41,22 @@ type DeviceManager interface {
 	// SetCacheTimeout set how long to keep onboard and device certificates in cache before rereading from a backing store. Value of 0 means
 	//   not to cache
 	SetCacheTimeout(int)
-	// OnboardCheck check if a certificate+serial combination are valid to use for registration. Includes checking for duplicates in devices
-	OnboardCheck(*x509.Certificate, string) error
-	// OnboardRemove remove an onboarding cert
-	OnboardRemove(string) error
-	// OnboardClear remove all onboarding certs
-	OnboardClear() error
-	// OnboardGet get the details for an onboarding certificate and its serials by Common Name
-	OnboardGet(string) (*x509.Certificate, []string, error)
-	// OnboardList list all of the known Common Names for onboard
-	OnboardList() ([]string, error)
-	// OnboardRegister apply an onboard cert and serials that apply to it. If the onboard cert already exists, will replace the serials and return without error. It is  idempotent.
-	OnboardRegister(*x509.Certificate, []string) error
-	// DeviceCheckCert check if a certificate is valid to use for a device
-	DeviceCheckCert(*x509.Certificate) (*uuid.UUID, error)
-	// DeviceCheckCertHash check if a certificate hash is valid to use for a device
-	DeviceCheckCertHash([]byte) (*uuid.UUID, error)
+	// OnboardDevice onboards a existing device
+	OnboardDevice(*x509.Certificate, *x509.Certificate, string) error
+	// DeviceCheckCertHash check if a device certificate hash is known
+	FindDevicebyCertHash([]byte) (*uuid.UUID, error)
 	// DeviceRemove remove a device
 	DeviceRemove(*uuid.UUID) error
 	// DeviceClear remove all devices
 	DeviceClear() error
 	// DeviceGet get the details for a device based on its UUID
-	DeviceGet(*uuid.UUID) (*x509.Certificate, *x509.Certificate, string, error)
+	DeviceGet(*uuid.UUID) (*x509.Certificate, *x509.Certificate, string, bool, error)
 	// DeviceList list all of the known UUIDs for devices
 	DeviceList() ([]*uuid.UUID, error)
 	// DeviceRegister register a new device certificate, including the onboarding certificate used to register it and its serial
 	DeviceRegister(uuid.UUID, *x509.Certificate, *x509.Certificate, string, []byte) error
 	// WriteCerts write an attestation certs information
-	WriteCerts(uuid.UUID, []byte) error
+	WriteAttestCerts(uuid.UUID, []byte) error
 	// WriteStorageKeys write storage keys information
 	WriteStorageKeys(uuid.UUID, []byte) error
 	// WriteInfo write an information message
@@ -105,4 +95,18 @@ type DeviceManager interface {
 	GetDeviceOptions(uuid.UUID) ([]byte, error)
 	// GetGlobalOptions retrieve global options
 	GetGlobalOptions() ([]byte, error)
+	// GetAppPath get the path for a given app instance
+	GetAppPath(u, instanceID uuid.UUID) string
+	// GetDevicePath get the path for a given device
+	GetDevicePath(instanceID uuid.UUID) string
+}
+
+// GetDeviceManagers get list of supported device managers
+// slice of registered device managers
+// goes through them in order
+// called as a func so that the handler disappears after the server first is created
+func GetDeviceManagers() []DeviceManager {
+	return []DeviceManager{
+		&file.DeviceManager{}, // this needs to be the last catch-all one
+	}
 }

@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/aohorodnyk/mimeheader"
-	"github.com/golang/protobuf/proto"
 	"github.com/lf-edge/adam/pkg/driver"
 	"github.com/lf-edge/adam/pkg/driver/common"
 	"github.com/lf-edge/eve-api/go/config"
@@ -29,6 +28,7 @@ import (
 	"github.com/lf-edge/eve-api/go/register"
 	uuid "github.com/satori/go.uuid"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -74,13 +74,19 @@ func configProcess(manager driver.DeviceManager, u uuid.UUID, configRequest *con
 			return nil, http.StatusForbidden, fmt.Errorf("integrity token missmatch")
 		}
 	}
-	// convert config into a protobuf
-	var msg config.EdgeDevConfig
-	if err := proto.Unmarshal(conf, &msg); err != nil {
-		return nil, http.StatusInternalServerError, fmt.Errorf("error reading device config: %v", err)
-	}
-	response := &config.ConfigResponse{}
 
+	var msg config.EdgeDevConfig
+	if json.Valid(conf) {
+		if err := json.Unmarshal(conf, &msg); err != nil {
+			return nil, http.StatusBadRequest, fmt.Errorf("error reading device config: %v", err)
+		}
+	} else {
+		if err := proto.Unmarshal(conf, &msg); err != nil {
+			return nil, http.StatusInternalServerError, fmt.Errorf("error reading device config: %v", err)
+		}
+	}
+
+	response := &config.ConfigResponse{}
 	hash := sha256.New()
 	common.ComputeConfigElementSha(hash, &msg)
 	configHash := hash.Sum(nil)
@@ -108,48 +114,21 @@ func registerProcess(manager driver.DeviceManager, registerMessage []byte, onboa
 		return http.StatusBadRequest, fmt.Errorf("failed to parse register message: %v", err)
 	}
 	serial := msg.Serial
-	err := manager.OnboardCheck(onboardCert, serial)
-	if err != nil {
-		log.Printf("failed to onboard with serial: %s", err)
-		if msg.SoftSerial != "" {
-			log.Println("will retry with soft serial")
-			serial = msg.SoftSerial
-			err = manager.OnboardCheck(onboardCert, serial)
-		}
-		if err != nil {
-			_, invalidCert := err.(*common.InvalidCertError)
-			_, invalidSerial := err.(*common.InvalidSerialError)
-			_, usedSerial := err.(*common.UsedSerialError)
-			switch {
-			case invalidCert, invalidSerial:
-				return http.StatusUnauthorized, fmt.Errorf("failed authentication %v", err)
-			case usedSerial:
-				return http.StatusConflict, fmt.Errorf("used serial %v", err)
-			}
-			return http.StatusInternalServerError, fmt.Errorf("error checking onboard cert and serial: %v", err)
-		}
-	}
-	// the passed cert is base64 encoded PEM. So we need to base64 decode it, and then extract the DER bytes
-	// register the new device cert
 	certPemBytes, err := base64.StdEncoding.DecodeString(string(msg.PemCert))
 	if err != nil {
 		return http.StatusBadRequest, fmt.Errorf("error base64-decoding device certficate from registration: %v", err)
 	}
-
 	certDer, _ := pem.Decode(certPemBytes)
 	deviceCert, err := x509.ParseCertificate(certDer.Bytes)
 	if err != nil {
 		return http.StatusBadRequest, fmt.Errorf("unable to convert device cert data from message to x509 certificate: %v", err)
 	}
-	// generate a new uuid
-	unew, err := uuid.NewV4()
+
+	err = manager.OnboardDevice(deviceCert, onboardCert, serial)
 	if err != nil {
-		return http.StatusBadRequest, fmt.Errorf("error generating a new device UUID: %v", err)
+		return http.StatusInternalServerError, fmt.Errorf("failed to onboard device: %v", err)
 	}
-	// we do not keep the uuid or send it back; perhaps a future version of the API will support it
-	if err := manager.DeviceRegister(unew, deviceCert, onboardCert, serial, common.CreateBaseConfig(unew)); err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("error registering new device: %v", err)
-	}
+
 	// send back a 201
 	return http.StatusCreated, nil
 }

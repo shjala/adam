@@ -73,7 +73,7 @@ func (h *apiHandlerv2) recordClient(u *uuid.UUID, r *http.Request) {
 		Method:    r.Method,
 		URL:       r.URL.String(),
 	}
-	b, err := json.Marshal(req)
+	b, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
 		log.Printf("error saving request structure: %v", err)
 		return
@@ -104,13 +104,13 @@ func (h *apiHandlerv2) validateAuthContainerAndRecord(w http.ResponseWriter, r *
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return nil, nil
 	}
-	u, err := h.manager.DeviceCheckCertHash(sm.SenderCertHash)
+	u, err := h.manager.FindDevicebyCertHash(sm.SenderCertHash)
 	if err != nil {
 		log.Printf("error checking DeviceCheckCertHash: %v", err)
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return nil, nil
 	}
-	devCert, _, _, err := h.manager.DeviceGet(u)
+	devCert, _, _, _, err := h.manager.DeviceGet(u)
 	if err != nil {
 		log.Printf("error getting DeviceCerts: %v", err)
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -156,7 +156,6 @@ func (h *apiHandlerv2) getAllCerts() (map[string]*certs.ZCert, error) {
 }
 
 func verifySignature(signature, payloadHash []byte, cert *x509.Certificate) error {
-
 	switch pub := cert.PublicKey.(type) {
 	case *rsa.PublicKey:
 		err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, payloadHash, signature)
@@ -445,14 +444,7 @@ func (h *apiHandlerv2) register(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(status)
 }
 
-func (h *apiHandlerv2) probe(w http.ResponseWriter, r *http.Request) {
-	log.Printf("%s requested probe", r.RemoteAddr)
-	w.WriteHeader(http.StatusOK)
-}
-
 func (h *apiHandlerv2) ping(w http.ResponseWriter, r *http.Request) {
-	log.Printf("%s requested ping", r.RemoteAddr)
-	// now just return a 200
 	w.WriteHeader(http.StatusOK)
 }
 

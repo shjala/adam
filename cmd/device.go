@@ -101,7 +101,7 @@ var deviceAddCmd = &cobra.Command{
 		body, err := json.Marshal(server.DeviceCert{
 			Cert:    dCert,
 			Onboard: oCert,
-			Serial:  serials,
+			Serial:  serial,
 		})
 		if err != nil {
 			log.Fatalf("error encoding json: %v", err)
@@ -328,7 +328,7 @@ func deviceInit() {
 	deviceCmd.AddCommand(deviceAddCmd)
 	deviceAddCmd.Flags().StringVar(&certPath, "path", "", "path to certificate to add")
 	deviceAddCmd.Flags().StringVar(&onboardCertPath, "onboard-path", "", "path to onboard certificate to add")
-	deviceAddCmd.Flags().StringVar(&serials, "serial", "", "serials to include with the onboard certificate")
+	deviceAddCmd.Flags().StringVar(&serial, "serial", "", "serials to include with the onboard certificate")
 	deviceAddCmd.MarkFlagRequired("path")
 	// deviceRemove
 	deviceCmd.AddCommand(deviceRemoveCmd)
