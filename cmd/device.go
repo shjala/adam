@@ -18,9 +18,12 @@ import (
 )
 
 var (
-	devUUID    string
-	configPath string
-	follow     bool
+	devUUID         string
+	configPath      string
+	follow          bool
+	cacheSecLogKeys bool
+	keyCacheBase    uint64
+	keyCacheMax     uint64
 )
 
 var deviceCmd = &cobra.Command{
@@ -69,7 +72,7 @@ var deviceGetCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("unable to read data from URL %s: %v", u, err)
 		}
-		var t server.DeviceCert
+		var t server.DeviceInfo
 		err = json.Unmarshal(buf, &t)
 		fmt.Printf("\nUUID: %s\nDevice Cert:\n%s\nOnboard Cert:\n%s\nOnboard Serial: %s", devUUID, string(t.Cert), string(t.Onboard), string(t.Serial))
 	},
@@ -80,6 +83,7 @@ var deviceAddCmd = &cobra.Command{
 	Short: "add new device",
 	Long:  `Add new device and retrieve the UUID`,
 	Run: func(cmd *cobra.Command, args []string) {
+		var deviceInfo server.DeviceInfo
 		dCert, err := os.ReadFile(certPath)
 		switch {
 		case err != nil && os.IsNotExist(err):
@@ -94,15 +98,38 @@ var deviceAddCmd = &cobra.Command{
 		case err != nil:
 			log.Fatalf("error reading cert file %s: %v", certPath, err)
 		}
+
+		deviceInfo.Cert = dCert
+		deviceInfo.Onboard = oCert
+		deviceInfo.Serial = serial
+
+		if cacheSecLogKeys {
+			if keyCacheMax < keyCacheBase {
+				log.Fatalf("keyCacheMax must be greater than or equal to keyCacheBase")
+			}
+			if keyCacheBase == 0 {
+				log.Fatalf("keyCacheBase must be greater than 0")
+			}
+			if keyCacheMax == 0 {
+				log.Fatalf("keyCacheMax must be greater than 0")
+			}
+			if keyCacheMax%keyCacheBase != 0 {
+				log.Fatalf("keyCacheMax must be a multiple of keyCacheBase")
+			}
+
+			deviceInfo.CacheKeys = true
+			deviceInfo.KeyCacheBase = keyCacheBase
+			deviceInfo.KeyCacheMax = keyCacheMax
+		}
+
+		body, err := json.Marshal(deviceInfo)
+		if err != nil {
+			log.Fatalf("error encoding json: %v", err)
+		}
 		u, err := resolveURL(serverURL, "/admin/device")
 		if err != nil {
 			log.Fatalf("error constructing URL: %v", err)
 		}
-		body, err := json.Marshal(server.DeviceCert{
-			Cert:    dCert,
-			Onboard: oCert,
-			Serial:  serial,
-		})
 		if err != nil {
 			log.Fatalf("error encoding json: %v", err)
 		}

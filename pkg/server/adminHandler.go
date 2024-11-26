@@ -51,12 +51,15 @@ type OnboardCert struct {
 	Serial string
 }
 
-// DeviceCert encoding for sending a device information, including device cert, onboard cert, and serial, if any
-type DeviceCert struct {
-	Cert      []byte
-	Onboard   []byte
-	Serial    string
-	Onboarded bool
+// DeviceInfo encoding for sending a device information, including device cert, onboard cert, and serial, if any
+type DeviceInfo struct {
+	Cert         []byte
+	Onboard      []byte
+	Serial       string
+	Onboarded    bool
+	CacheKeys    bool
+	KeyCacheBase uint64
+	KeyCacheMax  uint64
 }
 
 func (h *adminHandler) deviceAdd(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +72,7 @@ func (h *adminHandler) deviceAdd(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
 	var (
-		t       DeviceCert
+		t       DeviceInfo
 		cert    *x509.Certificate
 		onboard *x509.Certificate
 	)
@@ -86,7 +89,7 @@ func (h *adminHandler) deviceAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("bad device cert: %v", err), http.StatusBadRequest)
 		return
 	}
-	if t.Onboard != nil && len(t.Onboard) > 0 {
+	if len(t.Onboard) > 0 {
 		onboard, err = ax.ParseCert(t.Onboard)
 		if err != nil {
 			log.Printf("deviceAdd: ParseCert onboard error: %v", err)
@@ -106,6 +109,7 @@ func (h *adminHandler) deviceAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -147,7 +151,7 @@ func (h *adminHandler) deviceGet(w http.ResponseWriter, r *http.Request) {
 	case deviceCert == nil:
 		http.Error(w, "found device information, but cert was empty", http.StatusInternalServerError)
 	default:
-		dc := DeviceCert{
+		dc := DeviceInfo{
 			Cert:      ax.PemEncodeCert(deviceCert.Raw),
 			Onboard:   ax.PemEncodeCert(onboardCert.Raw),
 			Serial:    serial,

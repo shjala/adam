@@ -5,7 +5,7 @@
 
 IMG ?= lfedge/adam
 HASH ?= $(shell git show --format=%T -s)
-GOVER ?= 1.20.10-alpine3.18
+GOVER ?= 1.22.3-alpine3.18
 
 
 # check if we should append a dirty tag

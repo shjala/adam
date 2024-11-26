@@ -3,11 +3,13 @@
 Minimalist Adam is a fork of Adam, stripped down to only contain the essentials. It remains fully functional and is designed for rapid development, easy debugging, and exploring EVE APIs. All data is stored on disk in plain text. Checkout `scripts/bootstrap.sh` to see how to onboard a device.
 
 List of Changes:
-* Only device manager is file.
-* Device manager reworked.
-* "onboard" removed from CLI, now added device correctly gets onboarded.
+* Only avaiable device manager is file.
+* Device manager reworked and clean up.
+* "onboard" removed from CLI, now added device correctly and automatically gets onboarded.
+* Adam is not bound to only one EVE instance.
 * No need to race with controler to set the device config (after it registers).
 * Less tied to Eden and more like individual component.
+* **Implements secure log verification.**
 
 ---
 
