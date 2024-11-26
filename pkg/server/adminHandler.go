@@ -51,12 +51,15 @@ type OnboardCert struct {
 	Serial string
 }
 
-// DeviceCert encoding for sending a device information, including device cert, onboard cert, and serial, if any
-type DeviceCert struct {
-	Cert      []byte
-	Onboard   []byte
-	Serial    string
-	Onboarded bool
+// DeviceInfo encoding for sending a device information, including device cert, onboard cert, and serial, if any
+type DeviceInfo struct {
+	Cert         []byte
+	Onboard      []byte
+	Serial       string
+	Onboarded    bool
+	CacheKeys    bool
+	KeyCacheBase uint64
+	KeyCacheMax  uint64
 }
 
 func (h *adminHandler) deviceAdd(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +72,7 @@ func (h *adminHandler) deviceAdd(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
 	var (
-		t       DeviceCert
+		t       DeviceInfo
 		cert    *x509.Certificate
 		onboard *x509.Certificate
 	)
@@ -106,6 +109,22 @@ func (h *adminHandler) deviceAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+
+	// cache protected logs keys if requested
+	if t.CacheKeys {
+		log.Printf("Caching keys for the device, it might take a while...")
+
+		// load the initial key (this is a per device key and must be protected)
+		intialKey := sk0
+
+		// precompute the keys for the device and cache them, this will speed up
+		// the log verification process.
+		err = CacheSecLogKeys(intialKey, h.manager.GetDevicePath(unew), t.KeyCacheBase, t.KeyCacheMax)
+		if err != nil {
+			log.Printf("deviceAdd: CacheSecLogKeys error: %v", err)
+		}
+	}
+
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -147,7 +166,7 @@ func (h *adminHandler) deviceGet(w http.ResponseWriter, r *http.Request) {
 	case deviceCert == nil:
 		http.Error(w, "found device information, but cert was empty", http.StatusInternalServerError)
 	default:
-		dc := DeviceCert{
+		dc := DeviceInfo{
 			Cert:      ax.PemEncodeCert(deviceCert.Raw),
 			Onboard:   ax.PemEncodeCert(onboardCert.Raw),
 			Serial:    serial,

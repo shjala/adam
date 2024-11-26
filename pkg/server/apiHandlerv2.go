@@ -560,12 +560,24 @@ func (h *apiHandlerv2) newLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := newLogsProcess(h.manager, h.logChannel, *u, bytes.NewReader(b))
-	if err != nil {
-		log.Printf("Failed to logsProcess: %v", err)
-		http.Error(w, http.StatusText(status), status)
-		return
+	status := http.StatusOK
+	err := error(nil)
+	if isProtectedLog(bytes.NewReader(b)) {
+		status, err = newLogsProcessSecure(h.manager, h.logChannel, *u, bytes.NewReader(b))
+		if err != nil {
+			log.Printf("Failed to process protected logs: %v", err)
+			http.Error(w, http.StatusText(status), status)
+			return
+		}
+	} else {
+		status, err = newLogsProcess(h.manager, h.logChannel, *u, bytes.NewReader(b))
+		if err != nil {
+			log.Printf("Failed to process logs: %v", err)
+			http.Error(w, http.StatusText(status), status)
+			return
+		}
 	}
+
 	w.WriteHeader(status)
 }
 

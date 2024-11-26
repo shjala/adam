@@ -1,4 +1,4 @@
-FROM lfedge/eve-alpine:6.2.0 as build
+FROM lfedge/eve-alpine:591df01e581889c3027514c8a91feaca1c8ad49f as build
 ENV PKGS alpine-baselayout
 RUN eve-alpine-deploy.sh
 
