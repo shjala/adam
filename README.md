@@ -6,7 +6,6 @@ List of Changes:
 * Only avaiable device manager is file.
 * Device manager reworked and clean up.
 * "onboard" removed from CLI, now added device correctly and automatically gets onboarded.
-* Adam is not bound to only one EVE instance.
 * No need to race with controler to set the device config (after it registers).
 * Less tied to Eden and more like individual component.
 * **Implements secure log verification.**
