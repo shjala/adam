@@ -1,6 +1,6 @@
 # Minimalist Adam
 
-Minimalist Adam is a fork of Adam, stripped down to only contain the essentials. It remains fully functional and is designed for rapid development, easy debugging, and exploring EVE APIs. All data is stored on disk in plain text. Checkout `scripts/bootstrap.sh` to see how to onboard a device.
+Minimalist Adam is a fork of Adam, stripped down to only contain the essentials. It remains fully functional and is designed for rapid development, easy debugging, and exploring EVE APIs. All data is stored on disk in plain text. Checkout `bootstrap.sh` to see how to onboard a device.
 
 List of Changes:
 * Only avaiable device manager is file.
