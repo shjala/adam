@@ -7,7 +7,7 @@ List of Changes:
 * Device manager reworked and clean up.
 * "onboard" removed from CLI, now added device correctly and automatically gets onboarded.
 * No need to race with controler to set the device config (after it registers).
-* Less tied to Eden and more like individual component.
+* Not tied to Eden and more like individual component (generates proper certs).
 * **Implements secure log verification.**
 
 ---
