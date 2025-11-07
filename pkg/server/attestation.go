@@ -13,7 +13,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/legacy/tpm2"
 	"github.com/lf-edge/adam/pkg/driver"
 	"github.com/lf-edge/adam/pkg/driver/common"
 	x509Pem "github.com/lf-edge/adam/pkg/x509"
@@ -294,6 +294,13 @@ func attestProcess(manager driver.DeviceManager, u uuid.UUID, b []byte) ([]byte,
 				response.QuoteResp.Keys = nil
 				log.Printf("quoteValidate failed: %s, %s", response.QuoteResp.Response, err)
 				break
+			}
+		}
+
+		/// CHANGESSSS
+		if len(msg.Quote.TpmBinaryEventLog) > 0 {
+			if err := ValidateReportedPCRs(msg, u); err != nil {
+				log.Printf("DoItYess failed: %s", err)
 			}
 		}
 
