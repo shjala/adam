@@ -3,6 +3,7 @@ module github.com/lf-edge/adam
 go 1.22
 
 require (
+	eve_pcr_prediction v0.0.0-00010101000000-000000000000
 	github.com/aohorodnyk/mimeheader v0.0.6
 	github.com/golang/protobuf v1.5.0
 	github.com/google/go-tpm v0.3.3
@@ -13,6 +14,8 @@ require (
 	github.com/spf13/viper v1.7.1
 	google.golang.org/protobuf v1.36.3
 )
+
+replace eve_pcr_prediction => ../
 
 require (
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect

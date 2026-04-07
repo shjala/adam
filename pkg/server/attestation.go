@@ -297,6 +297,21 @@ func attestProcess(manager driver.DeviceManager, u uuid.UUID, b []byte) ([]byte,
 			}
 		}
 
+		if len(msg.Quote.TpmBinaryEventLog) > 0 {
+			rawLog, err := gunzip(msg.Quote.TpmBinaryEventLog)
+			if err != nil {
+				log.Printf("event log gunzip failed: %s", err)
+			} else {
+				if err := verifyEventLog(rawLog, msg.Quote.GetPcrValues()); err != nil {
+					log.Printf("verifyEventLog failed: %s", err)
+				} else {
+					if err := updateEventLogBaseline(manager, u, rawLog); err != nil {
+						log.Printf("updateEventLogBaseline failed: %s", err)
+					}
+				}
+			}
+		}
+
 		if err := templateAttest(manager, u, msg.Quote, response.QuoteResp); err != nil {
 			if response.QuoteResp.Response != attest.ZAttestResponseCode_Z_ATTEST_RESPONSE_CODE_SUCCESS {
 				response.QuoteResp.IntegrityToken = nil
