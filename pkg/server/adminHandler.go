@@ -25,12 +25,18 @@ import (
 )
 
 const (
-	StreamHeader = "X-Stream"
-	StreamValue  = "true"
+	StreamHeader        = "X-Stream"
+	StreamValue         = "true"
+	imageUploadFilename = "rootfs.img"
 )
+
+type upgradeRequest struct {
+	ImageID string `json:"imageId"`
+}
 
 type adminHandler struct {
 	manager         driver.DeviceManager
+	imageStore      *ImageStore
 	logChannel      chan []byte
 	infoChannel     chan []byte
 	requestsChannel chan []byte
@@ -699,4 +705,202 @@ func uuidFromVars(r *http.Request) (uuid.UUID, error) {
 		return uuid.UUID{}, fmt.Errorf("invalid UUID %q: %w", u, err)
 	}
 	return uid, nil
+}
+
+// deviceUpgrade sets a BaseOS upgrade in the device config pointing to the selected image.
+// EVE will download and install the image on the next config poll.
+// Any existing upgrade datastore and content tree entries are replaced.
+func (h *adminHandler) deviceUpgrade(w http.ResponseWriter, r *http.Request) {
+	uid, err := uuidFromVars(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var req upgradeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ImageID == "" {
+		http.Error(w, "imageId is required", http.StatusBadRequest)
+		return
+	}
+
+	meta, err := h.imageStore.Get(req.ImageID)
+	if err != nil {
+		http.Error(w, "image not found", http.StatusNotFound)
+		return
+	}
+
+	existingConfigB, err := h.manager.GetConfig(uid)
+	_, isNotFound := err.(*common.NotFoundError)
+	switch {
+	case err != nil && isNotFound:
+		http.Error(w, fmt.Sprintf("device not found: %s", uid), http.StatusNotFound)
+		return
+	case err != nil:
+		log.Printf("deviceUpgrade: GetConfig failed: %s", err)
+		http.Error(w, "failed to get device config", http.StatusInternalServerError)
+		return
+	}
+
+	var deviceConfig config.EdgeDevConfig
+	if err := protojson.Unmarshal(existingConfigB, &deviceConfig); err != nil {
+		log.Printf("deviceUpgrade: Unmarshal failed: %s", err)
+		http.Error(w, "failed to parse device config", http.StatusInternalServerError)
+		return
+	}
+
+	// Derive the adam base URL from the incoming request so EVE can reach the image.
+	scheme := "https"
+	baseURL := scheme + "://" + r.Host
+
+	dsUUID, _ := uuid.NewV4()
+	ctUUID, _ := uuid.NewV4()
+	dsID := dsUUID.String()
+	ctID := ctUUID.String()
+
+	ds := &config.DatastoreConfig{
+		Id:    dsID,
+		DType: config.DsType_DsHttps,
+		Fqdn:  baseURL,
+	}
+
+	ct := &config.ContentTree{
+		Uuid:         ctID,
+		DsId:         dsID,
+		URL:          "images/" + meta.ID + "/" + meta.Filename,
+		Iformat:      config.Format_RAW,
+		Sha256:       meta.Sha256,
+		MaxSizeBytes: uint64(meta.SizeBytes),
+		DisplayName:  meta.Name + " " + meta.Version,
+		DsIdsList:    []string{dsID},
+	}
+
+	baseos := &config.BaseOS{
+		ContentTreeUuid: ctID,
+		Activate:        true,
+		BaseOsVersion:   meta.Version,
+	}
+
+	// Remove any previous upgrade datastores and content trees, keep everything else.
+	if deviceConfig.Baseos != nil {
+		oldCtID := deviceConfig.Baseos.ContentTreeUuid
+		var keepCT []*config.ContentTree
+		for _, c := range deviceConfig.ContentInfo {
+			if c.Uuid != oldCtID {
+				keepCT = append(keepCT, c)
+			}
+		}
+		// Remove the old datastore that served only the upgrade content tree.
+		oldDsIDs := map[string]bool{}
+		for _, c := range deviceConfig.ContentInfo {
+			if c.Uuid == oldCtID {
+				for _, d := range c.DsIdsList {
+					oldDsIDs[d] = true
+				}
+			}
+		}
+		var keepDS []*config.DatastoreConfig
+		for _, d := range deviceConfig.Datastores {
+			if !oldDsIDs[d.Id] {
+				keepDS = append(keepDS, d)
+			}
+		}
+		deviceConfig.ContentInfo = keepCT
+		deviceConfig.Datastores = keepDS
+	}
+
+	deviceConfig.Datastores = append(deviceConfig.Datastores, ds)
+	deviceConfig.ContentInfo = append(deviceConfig.ContentInfo, ct)
+	deviceConfig.Baseos = baseos
+
+	// Bump config version.
+	if deviceConfig.Id != nil {
+		if v, convErr := strconv.Atoi(deviceConfig.Id.Version); convErr == nil {
+			deviceConfig.Id.Version = strconv.Itoa(v + 1)
+		}
+	}
+
+	jb, err := json.MarshalIndent(&deviceConfig, "", "  ")
+	if err != nil {
+		log.Printf("deviceUpgrade: Marshal failed: %s", err)
+		http.Error(w, "failed to serialize config", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.manager.SetConfig(uid, jb); err != nil {
+		log.Printf("deviceUpgrade: SetConfig failed: %s", err)
+		http.Error(w, "failed to save config", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// imageList returns all uploaded images as JSON.
+func (h *adminHandler) imageList(w http.ResponseWriter, r *http.Request) {
+	images, err := h.imageStore.List()
+	if err != nil {
+		log.Printf("imageList: %s", err)
+		http.Error(w, "failed to list images", http.StatusInternalServerError)
+		return
+	}
+	if images == nil {
+		images = []*ImageMeta{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(images)
+}
+
+// imageUpload accepts a multipart form with fields: name, version, file (rootfs.img).
+func (h *adminHandler) imageUpload(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(2 << 30); err != nil { // 2 GiB limit
+		http.Error(w, "failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	name := r.FormValue("name")
+	version := r.FormValue("version")
+	if name == "" || version == "" {
+		http.Error(w, "name and version are required", http.StatusBadRequest)
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	idUUID, _ := uuid.NewV4()
+	meta, err := h.imageStore.Save(idUUID.String(), name, version, imageUploadFilename, file)
+	if err != nil {
+		log.Printf("imageUpload: save failed: %s", err)
+		http.Error(w, "failed to save image", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(meta)
+}
+
+// imageDelete removes an image by ID.
+func (h *adminHandler) imageDelete(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	if err := h.imageStore.Delete(id); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// imageServe serves the raw image file for EVE to download.
+func (h *adminHandler) imageServe(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	meta, err := h.imageStore.Get(id)
+	if err != nil {
+		http.Error(w, "image not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, h.imageStore.FilePath(id, meta.Filename))
 }

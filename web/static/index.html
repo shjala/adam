@@ -9,15 +9,19 @@
 <body>
   <header>
     <h1>Adam Device Manager</h1>
+    <nav>
+      <button class="tab-btn active" onclick="showTab('devices')">Devices</button>
+      <button class="tab-btn" onclick="showTab('images')">Images</button>
+    </nav>
   </header>
 
-  <main>
+  <!-- Devices tab -->
+  <main id="tab-devices" class="tab-content">
     <section id="device-list-section">
       <h2>Devices</h2>
       <div id="device-list" class="device-list">
         <p class="muted">Loading...</p>
       </div>
-      <button id="refresh-btn" onclick="loadDevices()">Refresh</button>
     </section>
 
     <section id="device-detail" class="hidden">
@@ -25,20 +29,58 @@
 
       <div class="card">
         <h3>TPM Event Log</h3>
-        <div id="eventlog-state">
-          <p class="muted">Loading...</p>
-        </div>
+        <div id="eventlog-state"><p class="muted">Loading...</p></div>
         <button id="activate-btn" class="btn-primary" onclick="activateEventLog()">Set as Active</button>
       </div>
 
       <div class="card">
         <h3>SSH Access</h3>
-        <p class="hint">Paste an SSH public key to authorize access to this device over SSH.</p>
+        <p class="hint">Paste an SSH public key to authorize access to this device.</p>
         <textarea id="ssh-key-input" rows="4" placeholder="ssh-ed25519 AAAA..."></textarea>
         <button class="btn-primary" onclick="setSSHKey()">Set SSH Key</button>
       </div>
 
+      <div class="card">
+        <h3>Upgrade EVE OS</h3>
+        <p class="hint">Select an uploaded image. EVE will download and install it on the next config poll.</p>
+        <div id="upgrade-image-list"></div>
+        <button class="btn-primary" id="upgrade-btn" onclick="triggerUpgrade()" disabled>Upgrade</button>
+      </div>
+
       <p id="status-msg" class="status hidden"></p>
+    </section>
+  </main>
+
+  <!-- Images tab -->
+  <main id="tab-images" class="tab-content hidden">
+    <section class="full-width">
+      <h2>EVE OS Images</h2>
+
+      <div class="card">
+        <h3>Upload Image</h3>
+        <p class="hint">Upload a rootfs.img (Squashfs) EVE OS image.</p>
+        <div class="form-row">
+          <label>Name<input id="img-name" type="text" placeholder="eve-os"></label>
+          <label>Version<input id="img-version" type="text" placeholder="1.2.3"></label>
+        </div>
+        <div class="form-row">
+          <label class="file-label">
+            <span id="file-label-text">Choose rootfs.img...</span>
+            <input id="img-file" type="file" accept=".img" onchange="updateFileLabel(this)">
+          </label>
+        </div>
+        <div id="upload-progress" class="hidden">
+          <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+          <span id="progress-text">Uploading...</span>
+        </div>
+        <button class="btn-primary" onclick="uploadImage()">Upload</button>
+        <p id="upload-status" class="status hidden"></p>
+      </div>
+
+      <div class="card">
+        <h3>Available Images</h3>
+        <div id="image-list"><p class="muted">Loading...</p></div>
+      </div>
     </section>
   </main>
 

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -94,6 +95,13 @@ func (s *Server) Start() {
 	infoChannel := make(chan []byte)
 	metricChannel := make(chan []byte)
 
+	// image datastore
+	imagesDir := filepath.Join(s.DeviceManager.Database(), "images")
+	imgStore, err := newImageStore(imagesDir)
+	if err != nil {
+		log.Fatalf("failed to init image store: %v", err)
+	}
+
 	if !hasApiV2 {
 		log.Fatalf("Only APIv2 supported at this time")
 	}
@@ -127,9 +135,9 @@ func (s *Server) Start() {
 	edv2.HandleFunc("/id/{uuid}/apps/instanceid/{appuuid}/newlogs", apiv2.newAppLogs).Methods("POST")
 	edv2.HandleFunc("/uuid", apiv2.uuid).Methods("POST")
 
-	// admin endpoint - custom, used to manage adam
 	admin := &adminHandler{
 		manager:     s.DeviceManager,
+		imageStore:  imgStore,
 		logChannel:  logChannel,
 		infoChannel: infoChannel,
 	}
@@ -166,6 +174,10 @@ func (s *Server) Start() {
 	ad.HandleFunc("/device/{uuid}/eventlog", admin.deviceEventLogStateGet).Methods("GET")
 	ad.HandleFunc("/device/{uuid}/eventlog/activate", admin.deviceEventLogActivate).Methods("PUT")
 	ad.HandleFunc("/device/{uuid}/ssh", admin.deviceSSHKeySet).Methods("PUT")
+	ad.HandleFunc("/device/{uuid}/upgrade", admin.deviceUpgrade).Methods("POST")
+	ad.HandleFunc("/images", admin.imageList).Methods("GET")
+	ad.HandleFunc("/images", admin.imageUpload).Methods("POST")
+	ad.HandleFunc("/images/{id}", admin.imageDelete).Methods("DELETE")
 	ad.HandleFunc("/options", admin.globalOptionsGet).Methods("GET")
 	ad.HandleFunc("/options", admin.globalOptionsSet).Methods("PUT")
 
@@ -203,6 +215,7 @@ func (s *Server) Start() {
 	router.HandleFunc("/", indexHandler).Methods("GET")
 	router.HandleFunc("/index.html", indexHandler).Methods("GET")
 	router.PathPrefix("/static/").Handler(http.StripPrefix(stripPrefix, http.FileServer(http.FS(httpFS))))
+	router.HandleFunc("/images/{id}/rootfs.img", admin.imageServe).Methods("GET")
 
 	tlsConfig := &tls.Config{
 		ClientAuth: tls.RequestClientCert,

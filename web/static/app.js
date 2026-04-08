@@ -1,6 +1,22 @@
 'use strict';
 
 let selectedUUID = null;
+let selectedImageID = null;
+let allImages = [];
+
+// --- Tab navigation ---
+
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.remove('hidden');
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    if (btn.textContent.toLowerCase() === name) btn.classList.add('active');
+  });
+  if (name === 'images' && document.getElementById('image-list').children.length <= 1) loadImages();
+}
+
+// --- API helper ---
 
 async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -21,8 +37,10 @@ function showStatus(msg, isError) {
   el.textContent = msg;
   el.className = 'status ' + (isError ? 'error' : 'ok');
   clearTimeout(el._timer);
-  el._timer = setTimeout(() => el.className = 'status hidden', 4000);
+  el._timer = setTimeout(() => el.className = 'status hidden', 5000);
 }
+
+// --- Devices ---
 
 async function loadDevices() {
   const list = document.getElementById('device-list');
@@ -54,8 +72,10 @@ async function selectDevice(uuid) {
   document.querySelectorAll('.device-item').forEach(el => {
     el.classList.toggle('active', el.textContent === uuid);
   });
-  await loadEventLogState();
+  await Promise.all([loadEventLogState(), loadUpgradeImageList()]);
 }
+
+// --- Event log ---
 
 async function loadEventLogState() {
   const container = document.getElementById('eventlog-state');
@@ -74,7 +94,7 @@ async function loadEventLogState() {
       </div>`;
     document.getElementById('activate-btn').disabled = state.state === 'active';
   } catch (e) {
-    container.innerHTML = `<p class="muted">No baseline found.</p>`;
+    container.innerHTML = '<p class="muted">No baseline found.</p>';
     document.getElementById('activate-btn').disabled = true;
   }
 }
@@ -89,6 +109,8 @@ async function activateEventLog() {
   }
 }
 
+// --- SSH ---
+
 async function setSSHKey() {
   const key = document.getElementById('ssh-key-input').value.trim();
   if (!key) { showStatus('SSH key cannot be empty.', true); return; }
@@ -101,4 +123,169 @@ async function setSSHKey() {
   }
 }
 
+// --- Upgrade ---
+
+async function loadUpgradeImageList() {
+  const container = document.getElementById('upgrade-image-list');
+  selectedImageID = null;
+  document.getElementById('upgrade-btn').disabled = true;
+
+  try {
+    allImages = await api('GET', '/images') || [];
+  } catch (e) {
+    allImages = [];
+  }
+
+  if (allImages.length === 0) {
+    container.innerHTML = '<p class="muted">No images available. Upload one in the Images tab.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  for (const img of allImages) {
+    const el = document.createElement('div');
+    el.className = 'upgrade-item';
+    el.dataset.id = img.id;
+    el.innerHTML = `<strong>${img.name}</strong> <span class="version-badge">${img.version}</span>
+      <span class="img-meta">${formatBytes(img.sizeBytes)} &bull; ${new Date(img.uploadedAt).toLocaleDateString()}</span>`;
+    el.onclick = () => selectUpgradeImage(img.id);
+    container.appendChild(el);
+  }
+}
+
+function selectUpgradeImage(id) {
+  selectedImageID = id;
+  document.querySelectorAll('.upgrade-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+  document.getElementById('upgrade-btn').disabled = false;
+}
+
+async function triggerUpgrade() {
+  if (!selectedImageID) return;
+  if (!confirm('Trigger EVE OS upgrade? EVE will download and install the image on the next config poll.')) return;
+  try {
+    await api('POST', `/device/${selectedUUID}/upgrade`, { imageId: selectedImageID });
+    showStatus('Upgrade scheduled. EVE will install the image on the next config poll.');
+  } catch (e) {
+    showStatus('Upgrade failed: ' + e.message, true);
+  }
+}
+
+// --- Images ---
+
+async function loadImages() {
+  const list = document.getElementById('image-list');
+  list.innerHTML = '<p class="muted">Loading...</p>';
+  try {
+    const images = await api('GET', '/images') || [];
+    if (images.length === 0) {
+      list.innerHTML = '<p class="muted">No images uploaded yet.</p>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const img of images) {
+      const el = document.createElement('div');
+      el.className = 'image-row';
+      el.innerHTML = `
+        <div class="image-info">
+          <strong>${img.name}</strong>
+          <span class="version-badge">${img.version}</span>
+          <span class="img-meta">${formatBytes(img.sizeBytes)} &bull; SHA256: ${img.sha256.slice(0,16)}... &bull; ${new Date(img.uploadedAt).toLocaleString()}</span>
+        </div>
+        <button class="btn-danger" onclick="deleteImage('${img.id}', this)">Delete</button>`;
+      list.appendChild(el);
+    }
+  } catch (e) {
+    list.innerHTML = `<p class="muted">Error: ${e.message}</p>`;
+  }
+}
+
+async function deleteImage(id, btn) {
+  if (!confirm('Delete this image?')) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/admin/images/' + id, { method: 'DELETE' });
+    if (!resp.ok) throw new Error(await resp.text());
+    await loadImages();
+  } catch (e) {
+    showUploadStatus('Delete failed: ' + e.message, true);
+    btn.disabled = false;
+  }
+}
+
+function updateFileLabel(input) {
+  document.getElementById('file-label-text').textContent =
+    input.files.length ? input.files[0].name : 'Choose rootfs.img...';
+}
+
+async function uploadImage() {
+  const name = document.getElementById('img-name').value.trim();
+  const version = document.getElementById('img-version').value.trim();
+  const fileInput = document.getElementById('img-file');
+
+  if (!name || !version) { showUploadStatus('Name and version are required.', true); return; }
+  if (!fileInput.files.length) { showUploadStatus('Select a file first.', true); return; }
+
+  const form = new FormData();
+  form.append('name', name);
+  form.append('version', version);
+  form.append('file', fileInput.files[0]);
+
+  const progress = document.getElementById('upload-progress');
+  const fill = document.getElementById('progress-fill');
+  const progressText = document.getElementById('progress-text');
+  progress.classList.remove('hidden');
+  fill.style.width = '0%';
+
+  try {
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/admin/images');
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) {
+          const pct = Math.round(e.loaded / e.total * 100);
+          fill.style.width = pct + '%';
+          progressText.textContent = pct + '%';
+        }
+      };
+      xhr.onload = () => xhr.status === 201 ? resolve() : reject(new Error(xhr.responseText || xhr.statusText));
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.send(form);
+    });
+
+    showUploadStatus('Image uploaded successfully.');
+    document.getElementById('img-name').value = '';
+    document.getElementById('img-version').value = '';
+    fileInput.value = '';
+    document.getElementById('file-label-text').textContent = 'Choose rootfs.img...';
+    await loadImages();
+  } catch (e) {
+    showUploadStatus('Upload failed: ' + e.message, true);
+  } finally {
+    progress.classList.add('hidden');
+  }
+}
+
+function showUploadStatus(msg, isError) {
+  const el = document.getElementById('upload-status');
+  el.textContent = msg;
+  el.className = 'status ' + (isError ? 'error' : 'ok');
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.className = 'status hidden', 5000);
+}
+
+function formatBytes(bytes) {
+  if (bytes >= 1 << 30) return (bytes / (1 << 30)).toFixed(1) + ' GB';
+  if (bytes >= 1 << 20) return (bytes / (1 << 20)).toFixed(1) + ' MB';
+  return (bytes / (1 << 10)).toFixed(1) + ' KB';
+}
+
+// Auto-refresh: poll devices every 10s, event log every 15s, images every 30s.
 loadDevices();
+setInterval(loadDevices, 10000);
+setInterval(() => { if (selectedUUID) loadEventLogState(); }, 15000);
+setInterval(() => {
+  loadImages();
+  if (selectedUUID) loadUpgradeImageList();
+}, 30000);
