@@ -1,1 +1,47 @@
-<html></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adam Device Manager</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Adam Device Manager</h1>
+  </header>
+
+  <main>
+    <section id="device-list-section">
+      <h2>Devices</h2>
+      <div id="device-list" class="device-list">
+        <p class="muted">Loading...</p>
+      </div>
+      <button id="refresh-btn" onclick="loadDevices()">Refresh</button>
+    </section>
+
+    <section id="device-detail" class="hidden">
+      <h2>Device: <span id="detail-uuid"></span></h2>
+
+      <div class="card">
+        <h3>TPM Event Log</h3>
+        <div id="eventlog-state">
+          <p class="muted">Loading...</p>
+        </div>
+        <button id="activate-btn" class="btn-primary" onclick="activateEventLog()">Set as Active</button>
+      </div>
+
+      <div class="card">
+        <h3>SSH Access</h3>
+        <p class="hint">Paste an SSH public key to authorize access to this device over SSH.</p>
+        <textarea id="ssh-key-input" rows="4" placeholder="ssh-ed25519 AAAA..."></textarea>
+        <button class="btn-primary" onclick="setSSHKey()">Set SSH Key</button>
+      </div>
+
+      <p id="status-msg" class="status hidden"></p>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

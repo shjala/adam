@@ -558,3 +558,145 @@ func (h *adminHandler) globalOptionsSet(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusOK)
 }
+
+// deviceEventLogStateGet returns the current TPM event log state for the device.
+func (h *adminHandler) deviceEventLogStateGet(w http.ResponseWriter, r *http.Request) {
+	uid, err := uuidFromVars(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	deviceDir := h.manager.GetDevicePath(uid)
+	state, err := loadEventLogState(deviceDir)
+	if err != nil {
+		http.Error(w, "no event log baseline found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(state)
+}
+
+// deviceEventLogActivate sets the TPM event log baseline state to active.
+func (h *adminHandler) deviceEventLogActivate(w http.ResponseWriter, r *http.Request) {
+	uid, err := uuidFromVars(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	deviceDir := h.manager.GetDevicePath(uid)
+	state, err := loadEventLogState(deviceDir)
+	if err != nil {
+		http.Error(w, "no event log baseline found", http.StatusNotFound)
+		return
+	}
+
+	state.State = tpmEventLogStateActive
+	if err := saveEventLogState(deviceDir, state); err != nil {
+		log.Printf("deviceEventLogActivate: save failed: %s", err)
+		http.Error(w, "failed to save state", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+type sshKeyRequest struct {
+	PublicKey string `json:"publicKey"`
+}
+
+// deviceSSHKeySet sets the SSH public key in the device config and enables SSH access.
+// The key is stored as ConfigItem "debug.enable.ssh", which EVE reads to authorize the key.
+func (h *adminHandler) deviceSSHKeySet(w http.ResponseWriter, r *http.Request) {
+	uid, err := uuidFromVars(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+
+	var req sshKeyRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.PublicKey == "" {
+		http.Error(w, "publicKey is required", http.StatusBadRequest)
+		return
+	}
+
+	existingConfigB, err := h.manager.GetConfig(uid)
+	_, isNotFound := err.(*common.NotFoundError)
+	switch {
+	case err != nil && isNotFound:
+		http.Error(w, fmt.Sprintf("device not found: %s", uid), http.StatusNotFound)
+		return
+	case err != nil:
+		log.Printf("deviceSSHKeySet: GetConfig failed: %s", err)
+		http.Error(w, "failed to get device config", http.StatusInternalServerError)
+		return
+	}
+
+	var deviceConfig config.EdgeDevConfig
+	if err := protojson.Unmarshal(existingConfigB, &deviceConfig); err != nil {
+		log.Printf("deviceSSHKeySet: Unmarshal failed: %s", err)
+		http.Error(w, "failed to parse device config", http.StatusInternalServerError)
+		return
+	}
+
+	// Set or update debug.enable.ssh config item.
+	const sshConfigKey = "debug.enable.ssh"
+	found := false
+	for _, item := range deviceConfig.ConfigItems {
+		if item.Key == sshConfigKey {
+			item.Value = req.PublicKey
+			found = true
+			break
+		}
+	}
+	if !found {
+		deviceConfig.ConfigItems = append(deviceConfig.ConfigItems, &config.ConfigItem{
+			Key:   sshConfigKey,
+			Value: req.PublicKey,
+		})
+	}
+
+	// Bump config version.
+	if deviceConfig.Id != nil {
+		if v, err := strconv.Atoi(deviceConfig.Id.Version); err == nil {
+			deviceConfig.Id.Version = strconv.Itoa(v + 1)
+		}
+	}
+
+	jb, err := json.MarshalIndent(&deviceConfig, "", "  ")
+	if err != nil {
+		log.Printf("deviceSSHKeySet: Marshal failed: %s", err)
+		http.Error(w, "failed to serialize config", http.StatusInternalServerError)
+		return
+	}
+
+	if err := h.manager.SetConfig(uid, jb); err != nil {
+		log.Printf("deviceSSHKeySet: SetConfig failed: %s", err)
+		http.Error(w, "failed to save config", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// uuidFromVars extracts and parses the {uuid} path variable from the request.
+func uuidFromVars(r *http.Request) (uuid.UUID, error) {
+	u := mux.Vars(r)["uuid"]
+	uid, err := uuid.FromString(u)
+	if err != nil {
+		return uuid.UUID{}, fmt.Errorf("invalid UUID %q: %w", u, err)
+	}
+	return uid, nil
+}
