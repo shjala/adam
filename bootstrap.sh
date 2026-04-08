@@ -6,7 +6,7 @@ SERVER="192.168.178.87:$PORT"
 SERVER_URL=https://$SERVER
 
 # change this to the location of your eve configuration
-EVE_CONFIG=/data/dev/eve/conf
+EVE_CONFIG=/data/dev/eve/eve/conf
 # change this to the serial number of your EVE device
 EVE_SERIAL="shahshah"
 
@@ -15,10 +15,34 @@ CERTS=run/certs
 ADAM_BIN=./bin/adam
 ADAM_CMD="$ADAM_BIN admin --server $SERVER_URL --server-ca $CERTS/rootCA.crt"
 
+RUN_ONLY=0
+for arg in "$@"; do
+   if [ "$arg" = "--run" ]; then
+      RUN_ONLY=1
+   fi
+done
+
 # if adam is not built, ask to build it
 if [ ! -f $ADAM_BIN ]; then
    echo "Adam is not built. Please build it first."
    exit 1
+fi
+
+if [ "$RUN_ONLY" = "1" ]; then
+   add_device &
+   echo ""
+   echo "Admin UI: $SERVER_URL/"
+   echo ""
+   $ADAM_BIN server \
+       --server-cert $CERTS/server-tls.crt \
+       --server-key $CERTS/server-tls.key \
+       --signing-cert $CERTS/server-signing.crt \
+       --signing-key $CERTS/server-signing.key \
+       --encrypt-cert $CERTS/server-ecdh_exchange.crt \
+       --encrypt-key $CERTS/server-ecdh_exchange.key \
+       --conf-dir run/adam \
+       --port $PORT
+   exit 0
 fi
 
 add_device() {
@@ -76,7 +100,7 @@ echo $SERVER > "$EVE_CONFIG/server"
 # add the device after a short delay
 add_device &
 
-# run Aadam, and wait for eve to connect
+# run Adam, and wait for eve to connect
 $ADAM_BIN server \
     --server-cert $CERTS/server-tls.crt \
     --server-key $CERTS/server-tls.key \
