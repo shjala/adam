@@ -23,7 +23,8 @@ import (
 )
 
 const (
-	tpmEventLogStateFile     = "tpm-event-log-state.json"
+	tpmEventLogDir       = "tpm-event-log"
+	tpmEventLogStateFile = "tpm-event-log-state.json"
 	tpmEventLogStateActive   = "active"
 	tpmEventLogStateInactive = "inactive"
 )
@@ -34,6 +35,15 @@ type tpmEventLogState struct {
 	LogHash      string    `json:"logHash"`
 	State        string    `json:"state"`
 	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// eventLogDir returns the tpm-event-log subdirectory for the device, creating it if needed.
+func eventLogDir(deviceDir string) (string, error) {
+	dir := filepath.Join(deviceDir, tpmEventLogDir)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create event log dir: %w", err)
+	}
+	return dir, nil
 }
 
 // updateEventLogBaseline stores the incoming event log as the baseline for the device.
@@ -55,8 +65,14 @@ func updateEventLogBaseline(manager driver.DeviceManager, u uuid.UUID, rawLog []
 		return nil
 	}
 
-	baselineFile := fmt.Sprintf("tpm-event-log-%s.bin", hashHex)
-	if err := os.WriteFile(filepath.Join(deviceDir, baselineFile), rawLog, 0600); err != nil {
+	logDir, err := eventLogDir(deviceDir)
+	if err != nil {
+		return err
+	}
+
+	date := time.Now().UTC().Format("20060102-150405")
+	baselineFile := fmt.Sprintf("tpm-event-log-%s-%s.bin", date, hashHex)
+	if err := os.WriteFile(filepath.Join(logDir, baselineFile), rawLog, 0600); err != nil {
 		return fmt.Errorf("failed to write baseline: %w", err)
 	}
 
@@ -102,7 +118,7 @@ func gunzip(data []byte) ([]byte, error) {
 // loadEventLogState reads the state file from the device directory.
 // Returns an error if the file does not exist or cannot be parsed.
 func loadEventLogState(deviceDir string) (*tpmEventLogState, error) {
-	p := filepath.Join(deviceDir, tpmEventLogStateFile)
+	p := filepath.Join(deviceDir, tpmEventLogDir, tpmEventLogStateFile)
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return nil, err
@@ -114,12 +130,15 @@ func loadEventLogState(deviceDir string) (*tpmEventLogState, error) {
 	return &state, nil
 }
 
-// saveEventLogState writes the state file to the device directory.
+// saveEventLogState writes the state file to the tpm-event-log subdirectory.
 func saveEventLogState(deviceDir string, state *tpmEventLogState) error {
+	logDir, err := eventLogDir(deviceDir)
+	if err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	p := filepath.Join(deviceDir, tpmEventLogStateFile)
-	return os.WriteFile(p, data, 0600)
+	return os.WriteFile(filepath.Join(logDir, tpmEventLogStateFile), data, 0600)
 }
