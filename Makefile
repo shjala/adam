@@ -54,7 +54,8 @@ ifneq ($(BUILD),local)
 GO = docker run --rm -v $(shell dirname $(PWD)):/app -w /app/adam golang:$(GOVER) env $(GOENV)
 endif
 
-GO_FILES := $(shell find . -type f -name '*.go')
+GO_FILES    := $(shell find . -type f -name '*.go')
+WEB_FILES   := $(shell find web/ -type f)
 
 all: build
 
@@ -62,7 +63,7 @@ $(BINDIR):
 	mkdir -p $@
 
 build: bin $(LOCALBIN) $(LOCALLINK)
-$(LOCALBIN): $(GO_FILES)
+$(LOCALBIN): $(GO_FILES) $(WEB_FILES)
 	$(GO) go build -o $@ main.go
 
 $(LOCALLINK):
