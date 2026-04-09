@@ -22,7 +22,7 @@ EVE_SERIAL="${EVE_SERIAL:-shahshah}"
 STORE=run/adam
 CERTS=run/certs
 ADAM_BIN=./bin/adam
-ADAM_CMD="$ADAM_BIN admin --server $SERVER_URL --server-ca $CERTS/rootCA.crt"
+ADAM_CMD="$ADAM_BIN admin --server $SERVER_URL"
 
 RUN_ONLY=0
 OVERWRITE_YES=false
@@ -48,8 +48,6 @@ if [ "$RUN_ONLY" = "1" ]; then
    $ADAM_BIN server \
        --server-cert $CERTS/server-tls.crt \
        --server-key $CERTS/server-tls.key \
-       --server-ca $CERTS/rootCA.crt \
-       --base-url $SERVER_URL \
        --signing-cert $CERTS/server-signing.crt \
        --signing-key $CERTS/server-signing.key \
        --encrypt-cert $CERTS/server-ecdh_exchange.crt \
@@ -75,6 +73,12 @@ add_device() {
    echo "Adam devices:"
    $ADAM_CMD device list
 }
+
+# Fail early if the port is already in use.
+if lsof -ti tcp:"$PORT" > /dev/null 2>&1; then
+    echo "ERROR: port $PORT is already in use. Stop the existing process and re-run." >&2
+    exit 1
+fi
 
 # remove the existing store
 rm -rf $STORE
@@ -111,6 +115,10 @@ cat run/certs/rootCA.crt >> "$EVE_CONFIG/v2tlsbaseroot-certificates.pem"
 echo "Set server URL in EVE configuration..."
 echo $SERVER > "$EVE_CONFIG/server"
 
+# Copy rootCA to the location the adam admin client expects for TLS verification.
+mkdir -p run/adam
+cp run/certs/rootCA.crt run/adam/server.pem
+
 # add the device after a short delay
 add_device &
 
@@ -118,8 +126,6 @@ add_device &
 $ADAM_BIN server \
     --server-cert $CERTS/server-tls.crt \
     --server-key $CERTS/server-tls.key \
-    --server-ca $CERTS/rootCA.crt \
-    --base-url $SERVER_URL \
     --signing-cert $CERTS/server-signing.crt \
     --signing-key $CERTS/server-signing.key \
     --encrypt-cert $CERTS/server-ecdh_exchange.crt \
