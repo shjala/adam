@@ -59,10 +59,14 @@ if [[ -f "$CA_KEY_FILE" ]] || [[ -f "$CA_CERT_FILE" ]]; then
     [[ -f "$CA_KEY_FILE" ]] && echo "  - $CA_KEY_FILE"
     [[ -f "$CA_CERT_FILE" ]] && echo "  - $CA_CERT_FILE"
 
-    read -p "Do you want to overwrite them? (y/N): " -r
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Aborted by user"
-        exit 0
+    if [[ "${OVERWRITE_YES:-false}" == "true" ]]; then
+        print_info "Overwriting existing files (--yes)"
+    else
+        read -p "Do you want to overwrite them? (y/N): " -r
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Aborted by user"
+            exit 0
+        fi
     fi
 fi
 
