@@ -2,23 +2,58 @@
 
 # change the following variables to match your environment
 PORT=9090
-SERVER="192.168.178.87:$PORT"
+
+# Auto-detect the host IP: the address on the interface that has the default route.
+# Override by setting HOST_IP in the environment before running this script.
+if [ -z "$HOST_IP" ]; then
+    HOST_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ { for(i=1;i<=NF;i++) if($i=="src") { print $(i+1); exit } }')
+fi
+if [ -z "$HOST_IP" ]; then
+    echo "ERROR: could not auto-detect host IP. Set HOST_IP=<your-ip> and re-run." >&2
+    exit 1
+fi
+
+SERVER="$HOST_IP:$PORT"
 SERVER_URL=https://$SERVER
 
-# change this to the location of your eve configuration
-EVE_CONFIG=/data/dev/eve/conf
-# change this to the serial number of your EVE device
-EVE_SERIAL="shahshah"
+EVE_CONFIG="${EVE_CONFIG:-/data/dev/eve/eve/conf}"
+EVE_SERIAL="${EVE_SERIAL:-shahshah}"
 
 STORE=run/adam
 CERTS=run/certs
 ADAM_BIN=./bin/adam
 ADAM_CMD="$ADAM_BIN admin --server $SERVER_URL --server-ca $CERTS/rootCA.crt"
 
+RUN_ONLY=0
+for arg in "$@"; do
+   if [ "$arg" = "--run" ]; then
+      RUN_ONLY=1
+   fi
+done
+
 # if adam is not built, ask to build it
 if [ ! -f $ADAM_BIN ]; then
    echo "Adam is not built. Please build it first."
    exit 1
+fi
+
+if [ "$RUN_ONLY" = "1" ]; then
+   add_device &
+   echo ""
+   echo "Admin UI: $SERVER_URL/"
+   echo ""
+   $ADAM_BIN server \
+       --server-cert $CERTS/server-tls.crt \
+       --server-key $CERTS/server-tls.key \
+       --server-ca $CERTS/rootCA.crt \
+       --base-url $SERVER_URL \
+       --signing-cert $CERTS/server-signing.crt \
+       --signing-key $CERTS/server-signing.key \
+       --encrypt-cert $CERTS/server-ecdh_exchange.crt \
+       --encrypt-key $CERTS/server-ecdh_exchange.key \
+       --conf-dir run/adam \
+       --port $PORT
+   exit 0
 fi
 
 add_device() {
@@ -49,17 +84,17 @@ CA_KEY_FILE=run/certs/rootCA.key CA_CERT_FILE=run/certs/rootCA.crt ./scripts/cer
 echo "Generating server certificates..."
 SERVER_KEY_FILE=run/certs/server-tls.key SERVER_CERT_FILE=run/certs/server-tls.crt \
    ./scripts/cert/gen-server-cert.sh server-tls -c "run/certs/rootCA.crt" -k "run/certs/rootCA.key" \
-   -i "127.0.0.1" -i "192.168.178.87" -d "localhost"
+   -i "127.0.0.1" -i "$HOST_IP" -d "localhost"
 
 echo "Generating server signing certificates..."
 SERVER_KEY_FILE=run/certs/server-signing.key SERVER_CERT_FILE=run/certs/server-signing.crt \
    ./scripts/cert/gen-server-cert.sh server-signing -c "run/certs/rootCA.crt" -k "run/certs/rootCA.key" \
-   -i "127.0.0.1" -i "192.168.178.87" -d "localhost"
+   -i "127.0.0.1" -i "$HOST_IP" -d "localhost"
 
 echo "Generating server encryption certificates..."
 SERVER_KEY_FILE=run/certs/server-ecdh_exchange.key SERVER_CERT_FILE=run/certs/server-ecdh_exchange.crt \
    ./scripts/cert/gen-server-cert.sh server-ecdh_exchange -c "run/certs/rootCA.crt" -k "run/certs/rootCA.key" \
-   -i "127.0.0.1" -i "192.168.178.87" -d "localhost"
+   -i "127.0.0.1" -i "$HOST_IP" -d "localhost"
 
 echo "Copying onboarding certificate..."
 cp certs/default.onboard.cert.pem "$EVE_CONFIG/onboard.cert.pem"
@@ -76,10 +111,12 @@ echo $SERVER > "$EVE_CONFIG/server"
 # add the device after a short delay
 add_device &
 
-# run Aadam, and wait for eve to connect
+# run Adam, and wait for eve to connect
 $ADAM_BIN server \
     --server-cert $CERTS/server-tls.crt \
     --server-key $CERTS/server-tls.key \
+    --server-ca $CERTS/rootCA.crt \
+    --base-url $SERVER_URL \
     --signing-cert $CERTS/server-signing.crt \
     --signing-key $CERTS/server-signing.key \
     --encrypt-cert $CERTS/server-ecdh_exchange.crt \
