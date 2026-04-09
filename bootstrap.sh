@@ -36,6 +36,8 @@ if [ "$RUN_ONLY" = "1" ]; then
    $ADAM_BIN server \
        --server-cert $CERTS/server-tls.crt \
        --server-key $CERTS/server-tls.key \
+       --server-ca $CERTS/rootCA.crt \
+       --base-url $SERVER_URL \
        --signing-cert $CERTS/server-signing.crt \
        --signing-key $CERTS/server-signing.key \
        --encrypt-cert $CERTS/server-ecdh_exchange.crt \
@@ -104,6 +106,8 @@ add_device &
 $ADAM_BIN server \
     --server-cert $CERTS/server-tls.crt \
     --server-key $CERTS/server-tls.key \
+    --server-ca $CERTS/rootCA.crt \
+    --base-url $SERVER_URL \
     --signing-cert $CERTS/server-signing.crt \
     --signing-key $CERTS/server-signing.key \
     --encrypt-cert $CERTS/server-ecdh_exchange.crt \

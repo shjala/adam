@@ -72,7 +72,7 @@ async function selectDevice(uuid) {
   document.querySelectorAll('.device-item').forEach(el => {
     el.classList.toggle('active', el.textContent === uuid);
   });
-  await Promise.all([loadEventLogState(), loadUpgradeImageList()]);
+  await Promise.all([loadEventLogState(), loadUpgradeImageList(), loadUpgradeStatus()]);
 }
 
 // --- Event log ---
@@ -167,8 +167,42 @@ async function triggerUpgrade() {
   try {
     await api('POST', `/device/${selectedUUID}/upgrade`, { imageId: selectedImageID });
     showStatus('Upgrade scheduled. EVE will install the image on the next config poll.');
+    await loadUpgradeStatus();
   } catch (e) {
     showStatus('Upgrade failed: ' + e.message, true);
+  }
+}
+
+async function loadUpgradeStatus() {
+  if (!selectedUUID) return;
+  const banner = document.getElementById('upgrade-status-banner');
+  try {
+    const status = await api('GET', `/device/${selectedUUID}/upgrade`);
+    if (status && status.active) {
+      const img = allImages.find(i => i.id === status.imageId);
+      const label = img ? `${img.name} ${img.version}` : status.version;
+      banner.innerHTML = `<span class="state-badge state-active">Upgrade in progress</span>
+        <span class="state-meta-inline">Version: <strong>${label || status.version}</strong></span>
+        <button class="btn-danger btn-small" onclick="cancelUpgrade()">Cancel</button>`;
+      banner.classList.remove('hidden');
+      document.getElementById('upgrade-btn').disabled = true;
+    } else {
+      banner.classList.add('hidden');
+      banner.innerHTML = '';
+    }
+  } catch (e) {
+    banner.classList.add('hidden');
+  }
+}
+
+async function cancelUpgrade() {
+  if (!confirm('Cancel the pending upgrade? EVE will stop downloading on the next config poll.')) return;
+  try {
+    await api('DELETE', `/device/${selectedUUID}/upgrade`);
+    showStatus('Upgrade cancelled.');
+    await Promise.all([loadUpgradeStatus(), loadUpgradeImageList()]);
+  } catch (e) {
+    showStatus('Failed to cancel upgrade: ' + e.message, true);
   }
 }
 
@@ -285,6 +319,7 @@ function formatBytes(bytes) {
 loadDevices();
 setInterval(loadDevices, 10000);
 setInterval(() => { if (selectedUUID) loadEventLogState(); }, 15000);
+setInterval(() => { if (selectedUUID) loadUpgradeStatus(); }, 10000);
 setInterval(() => {
   loadImages();
   if (selectedUUID) loadUpgradeImageList();

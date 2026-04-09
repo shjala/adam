@@ -31,6 +31,8 @@ type Server struct {
 	Address         string
 	CertPath        string
 	KeyPath         string
+	CACertPath      string
+	BaseURL         string
 	SigningCertPath string
 	SigningKeyPath  string
 	EncryptCertPath string
@@ -140,6 +142,8 @@ func (s *Server) Start() {
 		imageStore:  imgStore,
 		logChannel:  logChannel,
 		infoChannel: infoChannel,
+		caCertPath:  s.CACertPath,
+		baseURL:     s.BaseURL,
 	}
 
 	ad := router.PathPrefix("/admin").Subrouter()
@@ -175,6 +179,8 @@ func (s *Server) Start() {
 	ad.HandleFunc("/device/{uuid}/eventlog/activate", admin.deviceEventLogActivate).Methods("PUT")
 	ad.HandleFunc("/device/{uuid}/ssh", admin.deviceSSHKeySet).Methods("PUT")
 	ad.HandleFunc("/device/{uuid}/upgrade", admin.deviceUpgrade).Methods("POST")
+	ad.HandleFunc("/device/{uuid}/upgrade", admin.deviceUpgradeGet).Methods("GET")
+	ad.HandleFunc("/device/{uuid}/upgrade", admin.deviceUpgradeCancel).Methods("DELETE")
 	ad.HandleFunc("/images", admin.imageList).Methods("GET")
 	ad.HandleFunc("/images", admin.imageUpload).Methods("POST")
 	ad.HandleFunc("/images/{id}", admin.imageDelete).Methods("DELETE")

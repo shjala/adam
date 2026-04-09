@@ -28,6 +28,7 @@ const (
 var (
 	serverCert         string
 	serverKey          string
+	serverBaseURL      string
 	signingCert        string
 	signingKey         string
 	encryptCert        string
@@ -174,6 +175,8 @@ var serverCmd = &cobra.Command{
 			Address:         hostIP,
 			CertPath:        serverCert,
 			KeyPath:         serverKey,
+			CACertPath:      serverCA,
+			BaseURL:         serverBaseURL,
 			SigningCertPath: signingCert,
 			SigningKeyPath:  signingKey,
 			EncryptCertPath: encryptCert,
@@ -206,6 +209,8 @@ func serverInit() {
 	serverCmd.Flags().StringVar(&hostIP, "ip", defaultIP, "IP address on which to listen")
 	serverCmd.Flags().StringVar(&serverCert, "server-cert", path.Join(defaultDatabaseURL, serverCertFilename), "path to server certificate")
 	serverCmd.Flags().StringVar(&serverKey, "server-key", path.Join(defaultDatabaseURL, serverKeyFilename), "path to server key")
+	serverCmd.Flags().StringVar(&serverCA, "server-ca", "", "path to CA certificate that signed the server cert; included in datastore configs so EVE can verify TLS when downloading images")
+	serverCmd.Flags().StringVar(&serverBaseURL, "base-url", "", "public HTTPS URL of this adam instance as reachable by EVE devices (e.g. https://192.168.1.1:9090); used as datastore Fqdn when scheduling upgrades")
 	serverCmd.Flags().StringVar(&signingCert, "signing-cert", path.Join(defaultDatabaseURL, signingCertFilename), "path to signing certificate")
 	serverCmd.Flags().StringVar(&signingKey, "signing-key", path.Join(defaultDatabaseURL, signingKeyFilename), "path to signing key")
 	serverCmd.Flags().StringVar(&encryptCert, "encrypt-cert", path.Join(defaultDatabaseURL, encryptCertFilename), "path to encrypt certificate")

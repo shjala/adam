@@ -305,8 +305,15 @@ func attestProcess(manager driver.DeviceManager, u uuid.UUID, b []byte) ([]byte,
 				if err := verifyEventLog(rawLog, msg.Quote.GetPcrValues()); err != nil {
 					log.Printf("verifyEventLog failed: %s", err)
 				} else {
+					// This will update the baseline only if there it no active baseline
 					if err := updateEventLogBaseline(manager, u, rawLog); err != nil {
 						log.Printf("updateEventLogBaseline failed: %s", err)
+					}
+
+					// use baseline and incoming event log to predict the PCR values
+					// and make sure that predicted values match with the quote
+					if err := verifyPCRPrediction(manager, u, rawLog, msg.Quote.GetPcrValues()); err != nil {
+						log.Printf("verifyPCRPrediction failed: %s", err)
 					}
 				}
 			}

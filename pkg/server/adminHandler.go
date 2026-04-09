@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -40,6 +41,12 @@ type adminHandler struct {
 	logChannel      chan []byte
 	infoChannel     chan []byte
 	requestsChannel chan []byte
+	// caCertPath is the path to the CA cert used to sign adam's TLS cert.
+	// Included in DatastoreConfig.DsCertPEM so EVE's downloader trusts adam's TLS cert.
+	caCertPath string
+	// baseURL is adam's public HTTPS base URL as seen by EVE (e.g. "https://192.168.1.1:9090").
+	// Used as the datastore Fqdn for upgrades. Falls back to the HTTP request Host header if empty.
+	baseURL string
 }
 
 // OnboardCert encoding for sending an onboard cert and serials via json
@@ -748,9 +755,11 @@ func (h *adminHandler) deviceUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Derive the adam base URL from the incoming request so EVE can reach the image.
-	scheme := "https"
-	baseURL := scheme + "://" + r.Host
+	// Use the configured public base URL so EVE can reach adam regardless of how the UI was accessed.
+	baseURL := h.baseURL
+	if baseURL == "" {
+		baseURL = "https://" + r.Host
+	}
 
 	dsUUID, _ := uuid.NewV4()
 	ctUUID, _ := uuid.NewV4()
@@ -761,6 +770,14 @@ func (h *adminHandler) deviceUpgrade(w http.ResponseWriter, r *http.Request) {
 		Id:    dsID,
 		DType: config.DsType_DsHttps,
 		Fqdn:  baseURL,
+	}
+	if h.caCertPath != "" {
+		caPEM, err := os.ReadFile(h.caCertPath)
+		if err != nil {
+			log.Printf("deviceUpgrade: reading CA cert %s: %s", h.caCertPath, err)
+		} else {
+			ds.DsCertPEM = [][]byte{caPEM}
+		}
 	}
 
 	ct := &config.ContentTree{
@@ -774,10 +791,18 @@ func (h *adminHandler) deviceUpgrade(w http.ResponseWriter, r *http.Request) {
 		DsIdsList:    []string{dsID},
 	}
 
+	// Increment RetryUpdate counter from any existing baseos config.
+	// This changes the config hash so EVE always reprocesses it.
+	var retryCounter uint32 = 1
+	if deviceConfig.Baseos != nil && deviceConfig.Baseos.RetryUpdate != nil {
+		retryCounter = deviceConfig.Baseos.RetryUpdate.Counter + 1
+	}
+
 	baseos := &config.BaseOS{
 		ContentTreeUuid: ctID,
 		Activate:        true,
 		BaseOsVersion:   meta.Version,
+		RetryUpdate:     &config.DeviceOpsCmd{Counter: retryCounter},
 	}
 
 	// Remove any previous upgrade datastores and content trees, keep everything else.
@@ -828,6 +853,138 @@ func (h *adminHandler) deviceUpgrade(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.manager.SetConfig(uid, jb); err != nil {
 		log.Printf("deviceUpgrade: SetConfig failed: %s", err)
+		http.Error(w, "failed to save config", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+type upgradeStatus struct {
+	Active  bool   `json:"active"`
+	Version string `json:"version,omitempty"`
+	ImageID string `json:"imageId,omitempty"`
+}
+
+// deviceUpgradeGet returns the current upgrade config for a device.
+func (h *adminHandler) deviceUpgradeGet(w http.ResponseWriter, r *http.Request) {
+	uid, err := uuidFromVars(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	existingConfigB, err := h.manager.GetConfig(uid)
+	_, isNotFound := err.(*common.NotFoundError)
+	switch {
+	case err != nil && isNotFound:
+		http.Error(w, fmt.Sprintf("device not found: %s", uid), http.StatusNotFound)
+		return
+	case err != nil:
+		http.Error(w, "failed to get device config", http.StatusInternalServerError)
+		return
+	}
+
+	var deviceConfig config.EdgeDevConfig
+	if err := protojson.Unmarshal(existingConfigB, &deviceConfig); err != nil {
+		http.Error(w, "failed to parse device config", http.StatusInternalServerError)
+		return
+	}
+
+	status := upgradeStatus{}
+	if deviceConfig.Baseos != nil && deviceConfig.Baseos.ContentTreeUuid != "" {
+		status.Active = true
+		status.Version = deviceConfig.Baseos.BaseOsVersion
+		// Find the content tree to get the image URL, then match to an image in the store.
+		ctID := deviceConfig.Baseos.ContentTreeUuid
+		for _, ct := range deviceConfig.ContentInfo {
+			if ct.Uuid == ctID {
+				// Extract image ID from URL: "images/{id}/rootfs.img"
+				parts := strings.Split(ct.URL, "/")
+				if len(parts) >= 2 {
+					status.ImageID = parts[1]
+				}
+				break
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+// deviceUpgradeCancel removes the current BaseOS upgrade from the device config.
+func (h *adminHandler) deviceUpgradeCancel(w http.ResponseWriter, r *http.Request) {
+	uid, err := uuidFromVars(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	existingConfigB, err := h.manager.GetConfig(uid)
+	_, isNotFound := err.(*common.NotFoundError)
+	switch {
+	case err != nil && isNotFound:
+		http.Error(w, fmt.Sprintf("device not found: %s", uid), http.StatusNotFound)
+		return
+	case err != nil:
+		log.Printf("deviceUpgradeCancel: GetConfig failed: %s", err)
+		http.Error(w, "failed to get device config", http.StatusInternalServerError)
+		return
+	}
+
+	var deviceConfig config.EdgeDevConfig
+	if err := protojson.Unmarshal(existingConfigB, &deviceConfig); err != nil {
+		log.Printf("deviceUpgradeCancel: Unmarshal failed: %s", err)
+		http.Error(w, "failed to parse device config", http.StatusInternalServerError)
+		return
+	}
+
+	if deviceConfig.Baseos == nil || deviceConfig.Baseos.ContentTreeUuid == "" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Remove the upgrade content tree, its datastore, and clear baseos.
+	oldCtID := deviceConfig.Baseos.ContentTreeUuid
+	oldDsIDs := map[string]bool{}
+	for _, c := range deviceConfig.ContentInfo {
+		if c.Uuid == oldCtID {
+			for _, d := range c.DsIdsList {
+				oldDsIDs[d] = true
+			}
+		}
+	}
+	var keepCT []*config.ContentTree
+	for _, c := range deviceConfig.ContentInfo {
+		if c.Uuid != oldCtID {
+			keepCT = append(keepCT, c)
+		}
+	}
+	var keepDS []*config.DatastoreConfig
+	for _, d := range deviceConfig.Datastores {
+		if !oldDsIDs[d.Id] {
+			keepDS = append(keepDS, d)
+		}
+	}
+	deviceConfig.ContentInfo = keepCT
+	deviceConfig.Datastores = keepDS
+	deviceConfig.Baseos = nil
+
+	if deviceConfig.Id != nil {
+		if v, convErr := strconv.Atoi(deviceConfig.Id.Version); convErr == nil {
+			deviceConfig.Id.Version = strconv.Itoa(v + 1)
+		}
+	}
+
+	jb, err := json.MarshalIndent(&deviceConfig, "", "  ")
+	if err != nil {
+		log.Printf("deviceUpgradeCancel: Marshal failed: %s", err)
+		http.Error(w, "failed to serialize config", http.StatusInternalServerError)
+		return
+	}
+	if err := h.manager.SetConfig(uid, jb); err != nil {
+		log.Printf("deviceUpgradeCancel: SetConfig failed: %s", err)
 		http.Error(w, "failed to save config", http.StatusInternalServerError)
 		return
 	}
