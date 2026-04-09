@@ -25,11 +25,14 @@ ADAM_BIN=./bin/adam
 ADAM_CMD="$ADAM_BIN admin --server $SERVER_URL --server-ca $CERTS/rootCA.crt"
 
 RUN_ONLY=0
+OVERWRITE_YES=false
 for arg in "$@"; do
-   if [ "$arg" = "--run" ]; then
-      RUN_ONLY=1
-   fi
+   case "$arg" in
+      --run)  RUN_ONLY=1 ;;
+      --yes)  OVERWRITE_YES=true ;;
+   esac
 done
+export OVERWRITE_YES
 
 # if adam is not built, ask to build it
 if [ ! -f $ADAM_BIN ]; then
