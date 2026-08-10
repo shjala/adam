@@ -45,6 +45,7 @@ var (
 	maxAppLogsSize     int
 	autoCert           bool
 	localWebFiles      string
+	storageURL         string
 	deviceManagers     = driver.GetDeviceManagers()
 )
 
@@ -181,6 +182,7 @@ var serverCmd = &cobra.Command{
 			DeviceManager:   mgr,
 			CertRefresh:     certRefresh,
 			WebDir:          localWebFiles,
+			StorageURL:      storageURL,
 		}
 		s.Start()
 	},
@@ -222,5 +224,6 @@ func serverInit() {
 	serverCmd.Flags().IntVar(&maxRequestsSize, "max-requests-size", 0, fmt.Sprintf("the maximum size of the request logs before rotating. A setting of 0 means to use the default for the particular driver. Those are: %v", defaultRequestsSizes))
 	serverCmd.Flags().IntVar(&maxFlowMessageSize, "max-flow-message-size", 0, fmt.Sprintf("the maximum size of the FlowMessage logs before rotating. A setting of 0 means to use the default for the particular driver. Those are: %v", defaultFlowMessageSizes))
 	serverCmd.Flags().IntVar(&maxAppLogsSize, "max-app-logs-size", 0, fmt.Sprintf("the maximum size of the app logs before rotating. A setting of 0 means to use the default for the particular driver. Those are: %v", defaultAppLogsSizes))
+	serverCmd.Flags().StringVar(&storageURL, "storage-url", os.Getenv("STORAGE_URL"), "base URL of the image storage service used to look up rootfs hashes for PCR prediction; if empty, prediction is skipped")
 	serverCmd.Flags().StringVar(&localWebFiles, "web-dir", "", "path to static files on the local filesystem for the web server; if empty, will use those embedded in the Adam binary")
 }

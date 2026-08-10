@@ -38,6 +38,9 @@ type Server struct {
 	CertRefresh     int
 	// WebDir path to webfiles to serve. If empty, use embedded
 	WebDir string
+	// StorageURL base URL of the image storage service used for PCR
+	// prediction. If empty, prediction is skipped.
+	StorageURL string
 }
 
 // Start start the server
@@ -107,6 +110,7 @@ func (s *Server) Start() {
 		signingKeyPath:  s.SigningKeyPath,
 		encryptCertPath: s.EncryptCertPath,
 		encryptKeyPath:  s.EncryptKeyPath,
+		storageURL:      s.StorageURL,
 	}
 
 	edv2 := router.PathPrefix("/api/v2/edgedevice").Subrouter()

@@ -217,7 +217,7 @@ func templateAttest(manager driver.DeviceManager, u uuid.UUID, quote *attest.ZAt
 	return nil
 }
 
-func attestProcess(manager driver.DeviceManager, u uuid.UUID, b []byte) ([]byte, int, error) {
+func attestProcess(manager driver.DeviceManager, u uuid.UUID, b []byte, storageURL string) ([]byte, int, error) {
 	msg := &attest.ZAttestReq{}
 	if err := proto.Unmarshal(b, msg); err != nil {
 		return nil, http.StatusBadRequest, fmt.Errorf("failed to parse attest request: %v", err)
@@ -297,12 +297,45 @@ func attestProcess(manager driver.DeviceManager, u uuid.UUID, b []byte) ([]byte,
 			}
 		}
 
+		// A device part-way through an update fails the PCR template check, and
+		// that is exactly the case the event log resolves, so reconcile it first.
+		outcome := baselineNoEvidence
+		if len(msg.Quote.GetTpmBinaryEventLog()) > 0 {
+			outcome = reconcileEventLogBaseline(manager, manager.GetDevicePath(u), u, msg.Quote,
+				[]byte(deviceOptions.Nonce), nil, storageURL)
+		}
+
 		if err := templateAttest(manager, u, msg.Quote, response.QuoteResp); err != nil {
 			if response.QuoteResp.Response != attest.ZAttestResponseCode_Z_ATTEST_RESPONSE_CODE_SUCCESS {
-				response.QuoteResp.IntegrityToken = nil
-				response.QuoteResp.Keys = nil
-				log.Printf("templateAttest failed: %s, %s", response.QuoteResp.Response, err)
-				break
+				if outcome.vouchesForDevice() {
+					// No template covered this device, but evepcr confirmed the
+					// boot it reported is the published image running on it,
+					// which is stronger evidence than a template. Accept it.
+					log.Printf("device %s: accepting quote even though the PCR template did not match (%s), because %s",
+						u, err, outcome.evidence())
+					response.QuoteResp.Response = attest.ZAttestResponseCode_Z_ATTEST_RESPONSE_CODE_SUCCESS
+				} else {
+					response.QuoteResp.IntegrityToken = nil
+					response.QuoteResp.Keys = nil
+					log.Printf("templateAttest failed: %s, %s", response.QuoteResp.Response, err)
+					break
+				}
+			}
+		}
+
+		// The template check above has run, so the template can now follow the
+		// device. Doing this earlier would write a template built from this very
+		// quote and the check would then pass on its own output.
+		//
+		// Only a moved baseline, which means a change this controller predicted and
+		// confirmed. A device that failed that gets no template, and the check above
+		// rejects it on the next attestation as well.
+		if outcome == baselineMoved {
+			version := eveVersionFromQuote(msg.Quote)
+			if err := adoptTemplateForVersion(manager, version, msg.Quote); err != nil {
+				log.Printf("device %s: could not move the PCR template to %s: %s", u, version, err)
+			} else {
+				log.Printf("device %s: PCR template moved to %s", u, version)
 			}
 		}
 

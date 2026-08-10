@@ -46,6 +46,7 @@ type apiHandlerv2 struct {
 	signingKeyPath  string
 	encryptCertPath string
 	encryptKeyPath  string
+	storageURL      string
 }
 
 const (
@@ -516,7 +517,7 @@ func (h *apiHandlerv2) attest(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		return
 	}
-	out, status, err := attestProcess(h.manager, *u, b)
+	out, status, err := attestProcess(h.manager, *u, b, h.storageURL)
 	if err != nil {
 		log.Printf("Failed to attestProcess: %v", err)
 		http.Error(w, http.StatusText(status), status)
